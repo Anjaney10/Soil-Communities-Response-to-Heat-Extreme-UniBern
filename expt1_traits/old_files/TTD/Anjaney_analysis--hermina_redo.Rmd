@@ -1,0 +1,2497 @@
+---
+title: "Quick Time-to-Detection Analysis of Growth Curves"
+author: "Hermina (and Anjaney)"
+Date: "2023-12-21"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      smooth_scroll: false
+  pdf_document:
+    toc: true
+---
+
+# To Do List
+
+- use formal model selection to actually select the best thermal performance model (i.e., instead of the current "I like this because it looks pretty" method).
+- estimate the so-called "temperature optimum" for each species.
+
+- for TTD data, compare linear vs non-linear fits to see if it's possible to detect lag time.
+x calibrate the plate reader to CFU's so that I can convert from OD to number of cells.
+- Once I've done that, check the threshold of detection against all the cultures to see if there's any where we inoculated above the threshold of detection. If there are, check those curves directly for a lag.
+
+- In general, I expect TTD estimated $\mu$ $>$ per capita derivatives. BUT!, TTD can *under*estimate growth rate when there's a lag time. It would be good to compare the confidence intervals between TTD method and per capita derivative (e.g., at 0.05) to get an idea of when lag is happening as a function of temperature.
+
+- finally, for the $\alpha_{ii}$ effect: it would be good to plot the temperature optimum on the plot to see if
+
+# Introduction
+
+This notebook is for analyzing the temperature growth curves data produced by Anjaney. The goal is to describe the thermal niche of different strains present in the TERR lab. Two main questions of the experiment are:
+
+1.  Is there a relationship between a strain's growth (fast VS slow grower) and its thermal niche?
+
+2.  How does the growth stage of a culture (exponential VS stationary) impact its resistance to extreme heat?
+
+## The data
+
+Briefly, the data consists of growth curves inoculated in a 10-fold serial dilution at 6 different starting concentrations ($N_0$). There are 12 strains in total (BSC001 through BSC010 and BSC015, BSC019). Each inoculum was grown at 28C then its OD was adjusted and growth curves were acquired at 4 different temperatures (25C, 30C, 35C, 40C) in 3 replicates (i.e., each replicate grown on a different day). Finally, each strain was inoculated either from early exponential phase or from stationary phase.
+
+## The analysis
+
+This is a quick analysis of the data that uses a coarse-grained approximation of the time-to-detection (TTD) as a proxy of a strain's growth. Note that TTD is inversely related to growth rate: a fast growing strain will have a shorter TTD and a slow growing strain will have a longer TTD.
+
+# Load the data
+
+First load the packages and define a consistent theme for plotting.
+
+```{r, loadEnv}
+# load packages
+source("H1_extract_data_fun_v3-1.R") # for getting the data into R from the default H1 txt export format
+library(tidyverse)
+library(readxl) # for importing data directly from Excel sheet
+library(rTPC) # for fitting thermal performance curves
+library(nls.multstart) # used with rTPC to find the best fitting model
+library(broom)
+library(Hmisc) # for calculating non-parametric bootstrap confidence intervals
+library(AICcmodavg) # AIC comparison for survival CFU data
+library(RColorBrewer) # for changing the colours of plots
+library(gcplyr) # for getting the derivatives of growth curve data
+library(splines) # for fitting splines to the derivatives
+library(DescTools) # for Page trend test (compare Species ranks across temperatures)
+library(glmmTMB) # for fitting linear mixed models
+library(emmeans) # for estimated marginal means & analysis-of-variance-like p-values on linear models
+library(effsize) # for post-hoc statistical test of effect sizes
+library(performance) # to get R^2 by comparing 2 different models
+
+# set theme for all plots
+fave_theme <- theme_light() + # see other options at https://ggplot2.tidyverse.org/reference/ggtheme.html
+              theme(text = element_text(size=15), # larger text size for titles & axes
+                    panel.grid.major = element_blank(), # remove major gridlines
+                    panel.grid.minor = element_blank()) # remove minor gridlines
+theme_set(fave_theme)
+
+# define a palette for plotting the 4 species
+sp_palette = brewer.pal(11, "Set1")[c(1, 3, 7, 4, 2, 5)] # this matches with the slide colours
+```
+
+Now load the data using the function `get_ODdata_block` defined in "H1_extract_data_fun_v3-1.R". Note that pairs of replicate plates that were run on the same day (i.e., "blocks") can be loaded together in the same function call with the date as the block ID. The OD data for each well is loaded. Also, the temperature measured at each time-point by the instrument is given as the mean over the entire growth curve rounded to the nearest integer.
+
+*Note about data:* the data must be exported from the software as text file (tab separated values). Select export of *raw data* only (NOT processed data). If you stopped the machine prior to the total run time of the program, this will generate a bunch of zero time values at the end of the file. This is okay; it will not impact the loading of the data as the trailing zeros will be ignored.
+
+*Exclusion of contaminated wells:* make sure that you exclude any contaminated wells from the data BEFORE exporting to text file. You will have to do this by noting which wells have unexpected results in the fluorescent scans performed at the end of the growth curves. Then delete the data for those wells.
+
+
+```{r, loadData, warning=FALSE, eval=FALSE}
+# this function runs with some warnings. Hermina looked over the resultant data.frame and it seems fine. Will fix this if they find some time...
+
+# load the data
+# list.files(pattern = 'C\\.txt$')
+
+
+# Exponential Phase Inoculum
+
+EX1raw_data.df <- get_ODdata_block(blockID = "2023-10-30",
+                                filename_1 = "2023-10-30_12strains_30C.txt",
+                                filename_2 = "2023-10-30_12strains_40C.txt")
+
+EX2raw_data.df <- get_ODdata_block(blockID = "2023-11-01",
+                                filename_1 = "2023-11-01_12strains_25C.txt",
+                                filename_2 = "2023-11-01_12strains_35C.txt")
+
+EX3raw_data.df <- get_ODdata_block(blockID = "2023-11-03",
+                                filename_1 = "2023-11-03_12strains_30C.txt",
+                                filename_2 = "2023-11-03_12strains_40C.txt")
+
+EX4raw_data.df <- get_ODdata_block(blockID = "2023-11-06",
+                                filename_1 = "2023-11-06_12strains_25C.txt",
+                                filename_2 = "2023-11-06_12strains_35C.txt")
+
+EX5raw_data.df <- get_ODdata_block(blockID = "2023-11-08",
+                                filename_1 = "2023-11-08_12strains_30C.txt")
+
+# error with 2023-11-08_12strains_40C.txt
+  # when extract_OD_df splits the lines strings on tab and then tries to coerce them into a matrix, R complains that "data length [27354] is not a sub-multiple or multiple of the number of columns [98]"
+  # I can't find the issue and Excel can't either
+  # so just load this one file from csv
+  broken_txt <- read.csv("2023-11-08_12strains_40C.csv")
+  # convert the wide data into long tidy data as usually done by get_OD_data
+  broken_txt$Time <- sapply(broken_txt$Time,
+                            function(x) as.numeric(hms(x))/(60*60))
+  # now we can easily convert the whole data.frame to numeric
+  broken_txt[] <- lapply(broken_txt, as.numeric)
+  # convert Temp into the mean temperature across the run
+  broken_txt$Temp <- round(mean(broken_txt$Temp), digits=1)
+  # reshape the data to long format
+  broken_txt <- pivot_longer(broken_txt, cols=!c("Time", "Temp"), names_to="Well", values_to="OD")
+  # add block and plate columns
+  broken_txt$block <- "2023-11-08"
+  broken_txt$plate <- 2
+  # combine it with data from the rest of its corresponding block
+    # first need to change Temp factor back to numeric
+  EX5raw_data.df$Temp <- as.numeric(as.character(EX5raw_data.df$Temp))
+  EX5raw_data.df <- rbind(EX5raw_data.df, broken_txt)
+    # then change it back to a factor to prevent downstream issues
+  EX5raw_data.df$Temp <- as.factor(EX5raw_data.df$Temp)
+  rm(broken_txt)
+
+EX6raw_data.df <- get_ODdata_block(blockID = "2023-11-10",
+                                filename_1 = "2023-11-10_12strains_25C.txt")
+                                # there's no 2023-11-10_12strains_35C.txt because this file got corrupted (see raw data)
+
+# Stationary Phase Inoculum
+
+ST1raw_data.df <- get_ODdata_block(blockID = "2023-11-13",
+                                filename_1 = "2023-11-13_12strains_25C.txt",
+                                filename_2 = "2023-11-13_12strains_35C.txt")
+
+ST2raw_data.df <- get_ODdata_block(blockID = "2023-11-20",
+                                filename_1 = "2023-11-20_12strains_30C.txt",
+                                filename_2 = "2023-11-20_12strains_40C.txt")
+
+ST3raw_data.df <- get_ODdata_block(blockID = "2023-11-15",
+                                filename_1 = "2023-11-15_12strains_25C.txt",
+                                filename_2 = "2023-11-15_12strains_35C.txt")
+
+ST4raw_data.df <- get_ODdata_block(blockID = "2023-11-22",
+                                filename_1 = "2023-11-22_12strains_30C.txt",
+                                filename_2 = "2023-11-22_12strains_40C.txt")
+
+ST5raw_data.df <- get_ODdata_block(blockID = "2023-11-17",
+                                filename_1 = "2023-11-17_12strains_25C.txt",
+                                filename_2 = "2023-11-17_12strains_35C.txt")
+
+ST6raw_data.df <- get_ODdata_block(blockID = "2023-11-24",
+                                filename_1 = "2023-11-24_12strains_30C.txt",
+                                filename_2 = "2023-11-24_12strains_40C.txt")
+```
+
+Annotate the data using the function `annotate_data` defined in "H1_extract_data_fun_v3-1.R". The option `layout = "12columns"` assumes the data is composed of 12 samples laid out over columns 1-12. Rows are assumed to be different dilutions, with row B starting at $10^{-1}$ and row G ending at $10^{-6}$ (rows A & H are assumed to be blank). You must specify the names of the samples in order from column 1 to 12 using the option `samples`. By default there will be a column titled "Replicate" and, since you're using the "12columns" layout, this will contain all 1's by default. This is because you only have 1 replicate per plate for each strain x dilution combination. You can just ignore this Replicate column (or delete it).
+
+After annotating the data, you can combine it into a single data.frame containing all the raw data.
+
+```{r, annotateData, eval=FALSE}
+# define vectors for each of the 3 layouts
+layout1 = c("Pseudomonas putida KT2440 - mScarlet","Pseudomonas putida uwc 2 - BFP","Pseudomonas putida F1 - sYFP","Pseudomonas veronii - mScarlet","Pseudomonas knackmussii B14 - GFP","Pseudomonas plecoglossicida - NA","Pseudomonas veronii - mCherry","Pseudomonas putida mt-2 KT2440 - NA","Pseudomonas veronii - BFP","Pseudomonas knackmussii B13 - mCherry","Pseudomonas putida KT2440 - GFP","Pseudomonas grimontii - NA")
+layout2 = c("Pseudomonas veronii - mCherry","Pseudomonas veronii - BFP","Pseudomonas putida mt-2 KT2440 - NA","Pseudomonas knackmussii B13 - mCherry","Pseudomonas putida KT2440 - GFP","Pseudomonas grimontii - NA","Pseudomonas putida KT2440 - mScarlet","Pseudomonas putida F1 - sYFP","Pseudomonas putida uwc 2 - BFP","Pseudomonas veronii - mScarlet","Pseudomonas knackmussii B14 - GFP","Pseudomonas plecoglossicida - NA")
+layout3 = c("Pseudomonas veronii - mScarlet","Pseudomonas knackmussii B14 - GFP","Pseudomonas plecoglossicida - NA","Pseudomonas putida KT2440 - mScarlet","Pseudomonas putida uwc 2 - BFP","Pseudomonas putida F1 - sYFP","Pseudomonas knackmussii B13 - mCherry","Pseudomonas grimontii - NA","Pseudomonas putida KT2440 - GFP","Pseudomonas veronii - mCherry","Pseudomonas veronii - BFP","Pseudomonas putida mt-2 KT2440 - NA")
+
+# annotate the data for each raw data.frame
+# Exponential Phase Inoculum
+
+EX1raw_data.df <- annotate_data(EX1raw_data.df, layout = "12columns", samples=layout1)
+EX2raw_data.df <- annotate_data(EX2raw_data.df, layout = "12columns", samples=layout1)
+EX3raw_data.df <- annotate_data(EX3raw_data.df, layout = "12columns", samples=layout2)
+EX4raw_data.df <- annotate_data(EX4raw_data.df, layout = "12columns", samples=layout2)
+EX5raw_data.df <- annotate_data(EX5raw_data.df, layout = "12columns", samples=layout3)
+EX6raw_data.df <- annotate_data(EX6raw_data.df, layout = "12columns", samples=layout3)
+
+# Stationary Phase Inoculum
+
+ST1raw_data.df <- annotate_data(ST1raw_data.df, layout = "12columns", samples=layout1)
+ST2raw_data.df <- annotate_data(ST2raw_data.df, layout = "12columns", samples=layout1)
+ST3raw_data.df <- annotate_data(ST3raw_data.df, layout = "12columns", samples=layout2)
+ST4raw_data.df <- annotate_data(ST4raw_data.df, layout = "12columns", samples=layout2)
+ST5raw_data.df <- annotate_data(ST5raw_data.df, layout = "12columns", samples=layout3)
+ST6raw_data.df <- annotate_data(ST6raw_data.df, layout = "12columns", samples=layout3)
+
+# combine exponential replicates into one data.frame
+exponential.df <- rbind(EX1raw_data.df, EX2raw_data.df, EX3raw_data.df, EX4raw_data.df, EX5raw_data.df, EX6raw_data.df)
+exponential.df$Inoculum <- "Exponential"
+# combine stationary replicates into one data.frame
+stationary.df <- rbind(ST1raw_data.df, ST2raw_data.df, ST3raw_data.df, ST4raw_data.df, ST5raw_data.df, ST6raw_data.df)
+stationary.df$Inoculum <- "Stationary"  
+
+# combine all replicates into one giant data.frame                 
+ALLraw_data.df <- rbind(exponential.df, stationary.df)     
+# remove the column titled Replicate as it is meaningless
+ALLraw_data.df <- ALLraw_data.df %>% select(-Replicate)
+
+# create a unique ID for each growth curve by pasting block, plate, and well
+ALLraw_data.df$uniqID <- with(ALLraw_data.df, paste(Well, plate, block, Inoculum))
+
+# the time column is giving very stupid and meaningless values because of division by 3
+# round to nearest second
+ALLraw_data.df$Time <- round(ALLraw_data.df$Time, digits = 4)
+
+# the Gen5 program inserted ** around the values that Anjaney excluded as outliers.
+  # this leads to NA values that lead to downstream problems
+# loop through all uniqID's to identify and remove replicates that are all NAs
+for(curve in unique(ALLraw_data.df$uniqID)){
+  df <- ALLraw_data.df %>% filter(uniqID == curve)
+  if(all(is.na(df$OD))){ # identify replicates where all OD values are NA
+    ALLraw_data.df <-ALLraw_data.df %>% filter(uniqID != curve)
+  }
+}
+# cleanup
+rm(df, curve)
+
+# change all Temp==26 values into 25 because that's our treatment
+ALLraw_data.df$Temp <- as.numeric(as.character(ALLraw_data.df$Temp))
+ALLraw_data.df$Temp[which(ALLraw_data.df$Temp==26)] <- 25
+
+# to keep your work space clean, you can now delete the many data.frames containing the individual blocks
+rm(EX1raw_data.df, EX2raw_data.df, EX3raw_data.df, EX4raw_data.df, EX5raw_data.df, EX6raw_data.df, ST1raw_data.df, ST2raw_data.df, ST3raw_data.df, ST4raw_data.df, ST5raw_data.df, ST6raw_data.df, layout1, layout2, layout3, exponential.df, stationary.df)
+```
+
+Note that here plate 1 corresponds with H1 Synergy and plate 2 corresponds with Epoch.
+
+### P. protegens data
+
+This was added on 25th March 2024.
+
+```{r, protegens_data, warning=FALSE, eval=FALSE}
+# load the data as separate data.frames
+PpEXP1raw_data.df <- get_ODdata_block(blockID = "2024-03-13",
+                                      filename_1 = "Pprotegens_exponential_40C--13March24.txt",
+                                      filename_2 = "Pprotegens_exponential_35C--13March24.txt")
+PpEXP2raw_data.df <- get_ODdata_block(blockID = "2024-03-11",
+                                      filename_1 = "Pprotegens_exponential_30C--11March24.txt",
+                                      filename_2 = "Pprotegens_exponential_25C--11March24.txt")
+PpSTA1raw_data.df <- get_ODdata_block(blockID = "2024-03-15",
+                                      filename_1 = "Pprotegens_stationary_40C--15March24.txt",
+                                      filename_2 = "Pprotegens_stationary_30C--15March24.txt")
+PpSTA2raw_data.df <- get_ODdata_block(blockID = "2024-03-18",
+                                      filename_1 = "Pprotegens_stationary_35C--18March24.txt",
+                                      filename_2 = "Pprotegens_stationary_25C--18March24.txt")
+
+# annotate the data
+layout1 <- c(rep("Pseudomonas protegens Pf5 - mTourquoise", 3), rep("Pseudomonas protegens Pf5 - mCherry", 3), rep("Pseudomonas protegens CHAO - GFP", 3), rep("Pseudomonas protegens CHAO - mCherry", 3))
+layout2 <- c(rep(c("Pseudomonas protegens Pf5 - mCherry", "Pseudomonas protegens CHAO - GFP", "Pseudomonas protegens CHAO - mCherry", "Pseudomonas protegens Pf5 - mTourquoise"), times=2), "Pseudomonas protegens Pf5 - mCherry", "Pseudomonas protegens Pf5 - mTourquoise", "Pseudomonas protegens CHAO - mCherry", "Pseudomonas protegens CHAO - GFP")
+layout3 <- rep(c("Pseudomonas protegens Pf5 - mTourquoise","Pseudomonas protegens Pf5 - mCherry","Pseudomonas protegens CHAO - GFP","Pseudomonas protegens CHAO - mCherry"), times=3)
+
+# annotate the data for each raw data.frame
+# Exponential Phase Inoculum
+PpEXP1raw_data.df <- annotate_data(PpEXP1raw_data.df, layout = "12columns", samples=layout1)
+PpEXP2raw_data.df <- annotate_data(PpEXP2raw_data.df, layout = "12columns", samples=layout2)
+# Stationary Phase Inoculum
+PpSTA1raw_data.df <- annotate_data(PpSTA1raw_data.df, layout = "12columns", samples=layout3)
+PpSTA2raw_data.df <- annotate_data(PpSTA2raw_data.df, layout = "12columns", samples=layout2)
+
+# combine exponential replicates into one data.frame
+exponential.df <- rbind(PpEXP1raw_data.df, PpEXP2raw_data.df)
+exponential.df$Inoculum <- "Exponential"
+# combine stationary replicates into one data.frame
+stationary.df <- rbind(PpSTA1raw_data.df, PpSTA2raw_data.df)
+stationary.df$Inoculum <- "Stationary"  
+
+# combine all replicates into one giant data.frame                 
+Ppraw_data.df <- rbind(exponential.df, stationary.df)     
+# remove the column titled Replicate as it is meaningless
+Ppraw_data.df <- Ppraw_data.df %>% select(-Replicate)
+
+# create a unique ID for each growth curve by pasting block, plate, and well
+Ppraw_data.df$uniqID <- with(Ppraw_data.df, paste(Well, plate, block, Inoculum))
+
+# the time column is giving very stupid and meaningless values because of division by 3
+# round to nearest second
+Ppraw_data.df$Time <- round(Ppraw_data.df$Time, digits = 4)
+
+# the Gen5 program inserted ** around the values that Anjaney excluded as outliers.
+  # this leads to NA values that lead to downstream problems
+# loop through all uniqID's to identify and remove replicates that are all NAs
+for(curve in unique(Ppraw_data.df$uniqID)){
+  df <- Ppraw_data.df %>% filter(uniqID == curve)
+  if(all(is.na(df$OD))){ # identify replicates where all OD values are NA
+    Ppraw_data.df <- Ppraw_data.df %>% filter(uniqID != curve)
+  }
+}
+# cleanup
+rm(df, curve)
+
+# change all Temp==26 values into 25 because that's our treatment
+Ppraw_data.df$Temp <- as.numeric(as.character(Ppraw_data.df$Temp))
+Ppraw_data.df$Temp[which(Ppraw_data.df$Temp==26)] <- 25
+
+# to keep your work space clean, you can now delete the many data.frames containing the individual blocks
+rm(PpEXP1raw_data.df, PpEXP2raw_data.df, PpSTA1raw_data.df, PpSTA2raw_data.df, annotate_data, extract_OD_df, get_OD_data, get_ODdata_block, layout1, layout2, layout3, exponential.df, stationary.df)
+```
+
+## Data pre-processing & sanity-checking
+
+Before proceeding with the analysis, make sure that the data looks as expected by plotting it.
+
+```{r, plotRawData, eval=FALSE}
+# combine the P. protegens data with the rest of the data...
+ALLraw_data.df <- rbind(ALLraw_data.df, Ppraw_data.df)
+
+# plot all the data
+ggplot(ALLraw_data.df, # specify the data.frame input
+       aes(y=OD, x=Time, colour=uniqID, group=uniqID )) + # specify x, y, and colour variables. Group is used here to tell ggplot how to correctly draw the lines connecting related data points.
+  scale_y_log10() + # use a log10 scale for the y axis
+  geom_line(alpha=0.1) + # draw lines connecting the points. The parameter "alpha=0.1" tells ggplot to make the lines 90% transparent.
+  theme(legend.position="none") + # this removes the legend entirely. We do this because the legend is giant for this plot.
+  labs(title="Raw Data: All Wells", x="Time (hrs)", y="A600 (raw O.D.)") # include the title of the plot and detailed labels for the axes.
+
+# plot the data EXCEPT for the blanks
+ggplot(filter(ALLraw_data.df, Sample != "BLK"), # everything is exactly the same except we are removing the blank samples using the dplyr function "filter". This keeps only the samples that are NOT called "BLK".
+       aes(y=OD, x=Time, colour=Sample, group=uniqID )) +
+  scale_y_log10() +
+  geom_line(alpha=0.1) +
+  theme(legend.title = element_text(size = 9), 
+               legend.text = element_text(size = 7)) +
+  labs(title="Raw Data: All Sample Wells", x="Time (hrs)", y="A600 (raw O.D.)")
+
+# plot the data
+ggplot(filter(ALLraw_data.df, Sample == "Pseudomonas protegens Pf5 - mTourquoise", Inoculum == "Stationary", Temp == "25"),
+       aes(y=OD, x=Time, colour=uniqID, group=uniqID )) +
+  scale_y_log10() +
+  geom_line(alpha=0.5) +
+  theme(legend.position = "none") +
+  labs(title="Raw Data: P. protegens 25*C", x="Time (hrs)", y="A600 (raw O.D.)") 
+```
+
+The first two plots look almost the same. The only difference is the thickness of the negative samples. Everything looks as expected since the only difference between the plots is that the first includes blanks (i.e., it contains more negative samples) and the second *excludes* all blanks (i.e., it contains fewer negative samples). The third plot shows lack of growth at higher temperature.
+
+Do the baseline subtraction to get the OD values:
+
+```{r, baseline, eval=FALSE}
+# baseline subtract using the median OD value of the blanks for each time point, for each plate
+  # create a data.frame containing only the blank samples for all plates
+data.blanks <- ALLraw_data.df %>% filter(Sample=="BLK")
+  # calculate the median OD value for the blanks at each time point for each plate.
+medianOD <- data.blanks %>% group_by(Time, block, plate) %>% # group the blanks together for each time point and plate
+                summarise(medianBlankOD = median(OD, na.rm=TRUE)) # get median OD value
+  # put the data.blanks information back into the full dataset
+ALL_data.df <- inner_join(ALLraw_data.df %>% filter(Sample!="BLK"), # remove blank samples
+                             medianOD)
+  # Finally, do the baseline subtraction by subtracting the medianBlankOD from the OD values
+ALL_data.df$baselinedOD <- ALL_data.df$OD - ALL_data.df$medianBlankOD
+
+
+# plot the data
+ggplot(filter(ALL_data.df, Sample == "Pseudomonas protegens Pf5 - mTourquoise", Inoculum == "Stationary", Temp == "25"),
+       aes(y= baselinedOD, x=Time, colour=Dilution, group=uniqID )) +
+  scale_y_log10() +
+  geom_line() +
+  geom_hline(yintercept =  0.05) +
+  theme(legend.position = "none") +
+  labs(title="P. protegens, Stationary, 25C, TTDCutoff = 0.05", x="Time (hrs)", y="A600 (corrected O.D.)") 
+
+# clean-up
+rm(data.blanks, medianOD)
+```
+
+Let's see how many data points we have for all samples and treatments:
+
+```{r, data_completeness, eval=FALSE}
+# separate the species, strain, and fluorophore information from the unique sample names
+ALL_data.df <- ALL_data.df %>% separate(col=Sample, sep=" - ", into=c("Genotype", "Fluor"), remove=FALSE)
+# parse the Genotype column into a species column
+ALL_data.df$Species <- sub("Pseudomonas (\\w+)", "\\1",
+                    str_extract(ALL_data.df$Genotype, "Pseudomonas (\\w+)"))
+ALL_data.df$Species <- paste("P.", ALL_data.df$Species)
+# For some samples, we have additional strain information. Parse this from the Genotype column into a strain column
+ALL_data.df$Strain <- NA
+ALL_data.df$Strain[as.logical(str_count(ALL_data.df$Genotype, "\\w+\\s\\w+\\s.*"))] <- sub("(\\S+\\s+){2}(.*)", "\\2", ALL_data.df$Genotype[as.logical(str_count(ALL_data.df$Genotype, "\\w+\\s\\w+\\s.*"))])
+
+# Replace the information in the Sample column with the unique sample ID from our strain collection
+ALL_data.df$Sample <- as.character(ALL_data.df$Sample)
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas putida F1 - sYFP"] <- "BSC001"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas putida KT2440 - mScarlet"] <- "BSC002"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas putida uwc 2 - BFP"] <- "BSC003"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas veronii - BFP"] <- "BSC004"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas veronii - mScarlet"] <- "BSC005"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas veronii - mCherry"] <- "BSC006"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas knackmussii B13 - mCherry"] <- "BSC007"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas knackmussii B14 - GFP"] <- "BSC008"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas plecoglossicida - NA"] <- "BSC009"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas putida mt-2 KT2440 - NA"] <- "BSC010"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas putida KT2440 - GFP"] <- "BSC015"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas grimontii - NA"] <- "BSC019"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas protegens Pf5 - mTourquoise"] <- "CK101"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas protegens Pf5 - mCherry"] <- "CK102"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas protegens CHAO - GFP"] <- "CK103"
+ALL_data.df$Sample[ALL_data.df$Sample == "Pseudomonas protegens CHAO - mCherry"] <- "CK104"
+# remove the genotype column
+ALL_data.df <- ALL_data.df %>% select(-Genotype)
+
+# check that all the data we loaded is actually there
+check_data <- ALL_data.df %>% filter(Time < 0.2) %>%
+                group_by(Sample, Temp, Dilution, Inoculum) %>%
+                  summarise(Count=n()) %>% as.data.frame()
+summary(check_data)
+# 35*C in block 2023-11-10 was corrupted so that's why we're missing those data points
+check_data %>% filter(Count < 3) %>% head()
+# display the data that have fewer than 3 replicates
+check_data %>% filter(Temp != 35, Count < 3)
+
+# cleanup
+rm(check_data, ALLraw_data.df, Ppraw_data.df)
+
+# save the good data to output for easy loading in downstream analyses
+save(ALL_data.df, file="Anjaney+Pprotegens_all_data.RData")
+```
+
+Great! It seems that we have successfully excluded the contaminated data :)
+
+# Estimate Carrying Capacity
+
+This section of code was added on 7 March 2024, after most of the stuff below.
+
+I define carrying capacity as the median OD achieved after 24h of growth but before 48h. There is significant evaporation from the high temperature wells so that's why I am cutting off the later time points. I will only consider the 2 highest starting concentrations: 0.1 and 0.01 because otherwise you need to wait longer to be certain that all strains have reached their carrying capacity.
+
+I will load the OD-to-CFU calibration data and use the exponential phase estimates at 25*C to get the carrying capacity for the following 3 species: P. putida, P. veronii, and P. knackmussii.
+
+```{r, carrying_capacity, eval=FALSE}
+load("Anjaney_all_data.RData")
+
+# throw out all baselined OD values whose OD is past the Beer-Lambert law
+kOD_data.df <- rbind(ALL_data.df %>% filter(plate==1, baselinedOD < 1.4), # too high OD measured on the Synergy
+                     ALL_data.df %>% filter(plate==2, baselinedOD < 1.1)) # too high OD measured on the epoch
+
+ggplot(kOD_data.df %>% filter(Species %in% c("P. putida", "P. veronii", "P. knackmussii"),
+                              Dilution %in% c("0.1", "0.01"),
+                              Time>24,
+                              Time<40),
+       aes(x=Time, y=baselinedOD, group=uniqID, colour=Species)) +
+  geom_line(alpha=0.2) +
+  labs(title="Data used for estimating K: get median")
+
+# get the median OD value between 24-40 hours
+kOD_data.df <- kOD_data.df %>% filter(Species %in% c("P. putida", "P. veronii", "P. knackmussii"),
+                                      Dilution %in% c("0.1", "0.01"),
+                                      Time>24,
+                                      Time<40) %>%
+                  group_by(uniqID, Temp, plate, Sample, Inoculum, Species, Strain) %>%
+                    summarise(medianOD = log10(median(baselinedOD)))
+
+# convert the OD data into CFU estimates
+load("OD_to_CFU_conversion.RData")
+# define functions for each species
+OD_to_CFU.putida <- function(log10OD, detector, temp){
+  if(detector=="synergy" & temp==25){
+    return(10^(log10OD*all_calibrations$estimate[26] + all_calibrations$estimate[25]))}
+  if(detector=="epoch" & temp==25){
+    return(10^(log10OD*all_calibrations$estimate[32] + all_calibrations$estimate[31]))}
+  if(detector=="synergy" & temp==40){
+    return(10^(log10OD*all_calibrations$estimate[30] + all_calibrations$estimate[29]))}
+  if(detector=="epoch" & temp==40){
+    return(10^(log10OD*all_calibrations$estimate[36] + all_calibrations$estimate[35]))}
+}
+
+OD_to_CFU.knack <- function(log10OD, detector, temp){
+  if(detector=="synergy" & temp==25){
+    return(10^(log10OD*all_calibrations$estimate[64] + all_calibrations$estimate[63]))}
+  if(detector=="epoch" & temp==25){
+    return(10^(log10OD*all_calibrations$estimate[72] + all_calibrations$estimate[71]))}
+  if(detector=="synergy" & temp==40){
+    return(10^(log10OD*all_calibrations$estimate[66] + all_calibrations$estimate[65]))}
+  if(detector=="epoch" & temp==40){
+    return(10^(log10OD*all_calibrations$estimate[74] + all_calibrations$estimate[73]))}
+}
+
+OD_to_CFU.veronii <- function(log10OD, detector, temp){
+  if(detector=="synergy" & temp==25){
+    return(10^(log10OD*all_calibrations$estimate[70] + all_calibrations$estimate[69]))}
+  if(detector=="epoch" & temp==25){
+    return(10^(log10OD*all_calibrations$estimate[70] + all_calibrations$estimate[69]))}
+  if(detector=="synergy" & temp==40){
+    return(10^(log10OD*all_calibrations$estimate[70] + all_calibrations$estimate[69]))}
+  if(detector=="epoch" & temp==40){
+    return(10^(log10OD*all_calibrations$estimate[70] + all_calibrations$estimate[69]))}
+}
+
+# do it one at a time for each species
+k_data.df <- rbind(kOD_data.df %>% filter(Species == "P. putida", plate==1, Temp<35) %>% mutate(k = OD_to_CFU.putida(medianOD, detector="synergy", temp=25)),
+                   kOD_data.df %>% filter(Species == "P. putida", plate==1, Temp>30) %>% mutate(k = OD_to_CFU.putida(medianOD, detector="synergy", temp=40)),
+                   kOD_data.df %>% filter(Species == "P. putida", plate==2, Temp<35) %>% mutate(k = OD_to_CFU.putida(medianOD, detector="epoch", temp=25)),
+                   kOD_data.df %>% filter(Species == "P. putida", plate==2, Temp>30) %>% mutate(k = OD_to_CFU.putida(medianOD, detector="epoch", temp=40)))
+
+k_data.df <- rbind(k_data.df,
+                   kOD_data.df %>% filter(Species == "P. knackmussii", plate==1, Temp<35) %>% mutate(k = OD_to_CFU.knack(medianOD, detector="synergy", temp=25)),
+                   kOD_data.df %>% filter(Species == "P. knackmussii", plate==1, Temp>30) %>% mutate(k = OD_to_CFU.knack(medianOD, detector="synergy", temp=40)),
+                   kOD_data.df %>% filter(Species == "P. knackmussii", plate==2, Temp<35) %>% mutate(k = OD_to_CFU.knack(medianOD, detector="epoch", temp=25)),
+                   kOD_data.df %>% filter(Species == "P. knackmussii", plate==2, Temp>30) %>% mutate(k = OD_to_CFU.knack(medianOD, detector="epoch", temp=40)))
+
+k_data.df <- rbind(k_data.df,
+                   kOD_data.df %>% filter(Species == "P. veronii", plate==1, Temp<35) %>% mutate(k = OD_to_CFU.veronii(medianOD, detector="synergy", temp=25)),
+                   kOD_data.df %>% filter(Species == "P. veronii", plate==1, Temp>30) %>% mutate(k = OD_to_CFU.veronii(medianOD, detector="synergy", temp=40)),
+                   kOD_data.df %>% filter(Species == "P. veronii", plate==2, Temp<35) %>% mutate(k = OD_to_CFU.veronii(medianOD, detector="epoch", temp=25)),
+                   kOD_data.df %>% filter(Species == "P. veronii", plate==2, Temp>30) %>% mutate(k = OD_to_CFU.veronii(medianOD, detector="epoch", temp=40)))
+
+ggplot(k_data.df %>% group_by(Sample, Temp, Species) %>%
+         summarise(meank = mean(k),
+                   sdk = sd(k)),
+       aes(x=Temp, y=meank, colour=Species)) +
+  geom_point(alpha=0.5) +
+  geom_errorbar(aes(ymin=meank-sdk, ymax=meank+sdk), width=0.05) +
+  scale_y_log10() +
+  geom_line(aes(x=Temp), stat="smooth", method="loess",
+            #formula=???,
+            alpha=0.5) +
+  labs(y="Carrying Capacity (+/- SD)", x="Temperature")
+```
+
+# Estimate Growth Rate
+
+## Data processing: Approximate the TTD
+
+See from Anjaney's presentation that an OD value of 0.05 is a reasonable cut-off for the time-to-detection (TTD) such that all curves are still in exponential growth at this value (i.e., growth is linear when plotted on a log scale).
+
+We will get a more fine-grained approximation for the TTD by using kernel smoothing and find the exact time when the threshold is passed (i.e., as compared to Anjaney's presentation, where he got a coarse-grained estimate of the TTD).
+
+```{r, ttd}
+load("Anjaney+Pprotegens_all_data.RData")
+
+# set the cut-off to 0.05 because this is the value that Anjaney found where all growth curves are still in the "log-linear" phase.
+TTDcutoff.low <- 0.05
+
+tempdf <- ALL_data.df %>% filter(uniqID == "B1 1 2023-10-30 Exponential")
+# perform linear interpolation using OD as the independent variable and Time as the dependent
+tempdf.Time <- approx(y=tempdf$Time, x=tempdf$baselinedOD,
+                      xout=TTDcutoff.low, ties="mean")$y #when there are non-unique values for baselinedOD, it takes the mean across these (that's why I'm NOT using the log of baselinedOD because then ties would be resolved using the geometric mean and I don't want that)
+
+# plot to check that this is working properly
+ggplot(tempdf,
+       aes(y= baselinedOD, x=Time)) +
+  scale_y_log10() +
+  geom_line() +
+  xlim(0,5) +
+  geom_hline(yintercept =  TTDcutoff.low, col="blue") +
+  geom_vline(xintercept =  tempdf.Time, col="red") +
+  theme(legend.position = "none") +
+  labs(title="Sanity check of TTD loess", x="Time (hrs)", y="A600 (corrected O.D.)") 
+rm(tempdf, tempdf.Time)
+
+# initialize an empty data.frame for storage
+TTD.df <- ALL_data.df %>% select(-Time, -Well, -OD, -medianBlankOD, -baselinedOD) %>% distinct()
+TTD.df$TTD <- NA
+
+# loop through all uniqID's
+for(curve in unique(ALL_data.df$uniqID)) {
+  # calculate the detection time using interpolation
+  detect_t <- with(ALL_data.df %>% filter(uniqID == curve),
+                   approx(y=Time, x=baselinedOD, xout=TTDcutoff.low, ties="mean")$y)
+  # save the time to the storage data.frame
+  TTD.df$TTD[TTD.df$uniqID == curve] <- detect_t
+}
+rm(curve, detect_t)
+
+# check that NA values for TTD correspond with curves that failed to grow
+  # keep OD values for the unique ID's that have TTD equal to NA
+tempdf <- ALL_data.df %>% filter(uniqID %in% TTD.df$uniqID[is.na(TTD.df$TTD)])
+ggplot(tempdf,
+       aes(y = baselinedOD, x = Time, colour = uniqID, group = uniqID)) +
+  scale_y_log10() +
+  geom_line() +
+  #xlim(0,5) +
+  geom_hline(yintercept =  TTDcutoff.low, col="blue") +
+  theme(legend.position = "none") +
+  labs(title="Checking growth curves with TTD 0.05=NA", x="Time (hrs)", y="A600 (corrected O.D.)")
+
+
+ggplot(tempdf[which(tempdf$baselinedOD > TTDcutoff.low),],
+       aes(y = baselinedOD, x = Time, colour = uniqID, group = uniqID)) +
+  scale_y_log10() +
+  geom_line() +
+  geom_hline(yintercept =  TTDcutoff.low, col="blue") +
+  geom_hline(yintercept =  0.13, col="red") +
+  labs(title="Checking growth curves with TTD 0.05=NA", x="Time (hrs)", y="A600 (corrected O.D.)")
+
+# let's repeat the TTD value calculation for slightly higher TTD cutoff where all growth curves can be included
+
+# rename the first TTD value calculation in the storage data.frame
+TTD.df <- TTD.df %>% rename(TTD_0.05 = TTD)
+
+# define the higher TTD cutoff value and initialize storage vector
+TTDcutoff.hi <- 0.13
+TTD.df$TTD_0.13 <- NA
+
+# loop through all uniqID's
+for(curve in unique(ALL_data.df$uniqID)) {
+  # calculate the detection time using interpolation
+  detect_t <- with(ALL_data.df %>% filter(uniqID == curve),
+                   approx(y=Time, x=baselinedOD, xout=TTDcutoff.hi, ties="mean")$y)
+  # save the time to the storage data.frame
+  TTD.df$TTD_0.13[TTD.df$uniqID == curve] <- detect_t
+}
+
+# check again that the NA TTD values represent growth curves that failed to grow
+tempdf <- ALL_data.df %>% filter(uniqID %in% TTD.df$uniqID[is.na(TTD.df$TTD_0.13)])
+ggplot(tempdf,
+       aes(y = baselinedOD, x = Time, colour = uniqID, group = uniqID)) +
+  scale_y_log10() +
+  geom_line() +
+  #xlim(0,5) +
+  geom_hline(yintercept =  TTDcutoff.hi, col="red") +
+  theme(legend.position = "none") +
+  labs(title="Checking growth curves with TTD 0.13=NA", x="Time (hrs)", y="A600 (corrected O.D.)")
+
+#clean up
+rm(curve, detect_t, tempdf)
+```
+
+It seems that the lower TTD value (0.05) is good for most of the growth curves but  there are a couple of growth curves that start with too high OD, even after baselining. That's why I tried setting a higher TTD value (0.13). The problem with this higher value is that we lose some of the growth curves that only cross this threshold later in growth. *shrug* This is not a perfect method... But hopefully we can make some reasonable interpretations.
+
+Calculate the net rate of growth by taking the inverse of the time to detection:
+
+```{r, TTD_growthrate}
+# calculate the net rate of growth
+TTD.df$rate_0.05 <- 1/TTD.df$TTD_0.05
+TTD.df$rate_0.13 <- 1/TTD.df$TTD_0.13
+
+# check the correlation in net growth rate estimated by the 2 methods
+ggplot(TTD.df, aes(x=rate_0.05, y=rate_0.13)) +
+  geom_abline(slope=1, intercept=0, colour="grey") +
+  geom_point(alpha=0.1) + 
+  geom_smooth(se=FALSE, method="lm") +
+  labs(x="TTD threshold = 0.05", y="TTD threshold = 0.13")
+
+summary(lm(TTD.df$rate_0.13 ~ TTD.df$rate_0.05))
+```
+As expected, the larger TTD cutoff leads to a slower estimate of the net growth rate, especially for higher growth rate estimates. This is expected. In general, prefer the smaller TTD cutoff.
+
+
+## Load more data: CFU data
+
+Import the CFU data to inform us about the starting concentration of cells in each replicate. I will use this to exclude dilutions that started with less than 50 cells, similar to [Mytilinaios et al. 2015](https://doi.org/10.1111/jam.12695).
+
+I'm not sure how to correctly propagate the sd's across the dilution series (e.g., assuming a random pipetting error of 5% in addition to the error on the inoculum size at highest concentration). Moreover, even if I had proper estimates for the sd on the inoculum size, these would not be used for the linear regression that I do below to get the intrinsic growth rate. So I will just ignore the sd on the inoculum size.
+
+```{r, CFU_data}
+CFUraw_inocula <- read_excel("CFU_data_2023-12-13.xlsx", sheet="inocula")
+CFUraw_survival <- read_excel("CFU_data_2023-12-13.xlsx", sheet="Temp_survival")
+
+# remove data point where the plate was noted to have dried out
+CFUraw_inocula <- CFUraw_inocula[!with(CFUraw_inocula,  grepl("Plate dried out after", Notes)),]
+
+# remove survival data where fewer than 15 cells were counted for the 28*C control condition
+CFUraw_survival <- CFUraw_survival %>% filter(CFU_at_28 > 14)
+
+# calculate the concentration of the cryostocked inoculum
+CFUraw_inocula$Concentration <- with(CFUraw_inocula,
+                                     CFU/Vol_Plated_mL*1/Dilution_Counted)
+# get mean and variance
+inocALL_data <- CFUraw_inocula %>% group_by(Sample, Temp, Inoculum) %>%
+                  summarise(mean_inoc_density = mean(Concentration),
+                            sd_inoc_density = sd(Concentration))
+
+# combine the inoculum values for 28*C with the TTD data
+  # first re-arrange the CFU data.frame to match the columns in TTD.df
+inoc_data <- inocALL_data %>% filter(Temp==28)
+inoc_data$Temp <- NULL
+  # then calculate the initial population sizes for the different dilutions
+inoc_data <- do.call("rbind", replicate(6, inoc_data, simplify = FALSE))
+inoc_data$Dilution <- rep(10^(-1*(1:6)), each=24+4*2)
+  # calculate the mean N0
+inoc_data$mean_N0 <- with(inoc_data, mean_inoc_density*Dilution)
+
+###The code block below is trying to estimate sd of the inoculum size. Ignore.
+###
+  # I would like to propagate this variance by assuming a 5% variance for each dilution (which seems reasonable because we designed the protocol to use the good pipettors at the top of their range)
+    # I think I should use the following formula to do this: the variance of two independent, normal variables when they are multiplied together is Var(XY)=(μX⋅μY)^2+μX^2⋅σY^2+μY^2⋅σX^2+σX^2⋅σY^2
+    # therefore, if we substitute μY for the mean dilution (D) and σY^2 for the variance of the dilution (D*0.05) and we keep μX as the mean of the inoculum density and σX as the standard deviation of the inoculum density then we get: the standard deviation of D dilution = sqrt((μ*D)^2 + (μ^2*(D*0.05)) + (D^2*σ^2) + (σ^2*(D*0.05)))
+#inoc_data$sd_N0 <- with(inoc_data,
+#                        sqrt((mean_inoc_density*Dilution)^2 + (mean_inoc_density^2*(Dilution*0.05)) + (Dilution^2*sd_inoc_density^2) + (sd_inoc_density^2*(Dilution*0.05))))
+# this yields very large sd values, I'm not happy with that.
+# here's the wrong way we could do the sd values (I'm not happy with this either):
+#inoc_data$sd_optimistic_N0 <- with(inoc_data,
+#                                   sqrt(sd_inoc_density^2+Dilution*0.05))
+###
+###End of sd of inoculum size calculation attempt.
+
+# remove the mean and sd inoc_density columns because we won't need them here
+inoc_data$mean_inoc_density <- inoc_data$sd_inoc_density <- NULL
+
+# combine the data sets
+inoc_data$Dilution <- as.factor(inoc_data$Dilution)
+TTD.df <- inner_join(inoc_data, TTD.df, by=c("Sample", "Inoculum", "Dilution"))
+rm(inoc_data)
+
+# exclude growth curves that started with less than 50 cells on average
+TTD.df <- TTD.df %>% filter(mean_N0 > 50)
+```
+
+For some treatments/samples, I can use the CFU data to calculate the death rate. In other words, the survival at the two highest temperatures ($35^{\circ}C$ and $40^{\circ}C$).
+
+```{r, survival_fromCFU}
+# calculate the survival under the extreme temperatures as a fraction of the density at 29
+CFUraw_survival <- CFUraw_survival %>% mutate(survival = CFU_at_stress/CFU_at_28) %>%
+                      rename(Temp = Stress_Temp) # rename this column because leading to confusion below
+
+# get mean and bootstrapped confidence intervals
+CFU_survival.df <-  CFUraw_survival %>% group_by(Sample, Temp, Inoculum) %>%
+                       summarise(ci = list(mean_cl_boot(survival) %>% 
+                          rename(mean_surviv=y, lwr_ci=ymin, upr_ci=ymax))) %>% unnest(cols = c(ci))
+
+# combine the data sets
+TTD.df <- right_join(CFU_survival.df,
+                     TTD.df, by=c("Sample", "Temp", "Inoculum"))
+
+# assume survival at 25 and 30*C is 1.0
+TTD.df$mean_surviv[TTD.df$Temp %in% c(25,30)] <- 1.0
+
+# calculate the mean surviving N0
+TTD.df$surviving_N0 <- with(TTD.df,
+                            mean_surviv * mean_N0)
+TTD.df$surviving_N0_lwr <- with(TTD.df,
+                              lwr_ci * mean_N0)
+TTD.df$surviving_N0_upr <- with(TTD.df,
+                              upr_ci * mean_N0)
+
+```
+
+## Analyze survival
+
+Let's check if there's a significant effect of inoculum phase on the survival based on CFU. To do this we will use a two-way ANOVA.
+
+```{r, signif_innoculum}
+# add the species column to the dataset
+CFUraw_survival <- left_join(CFUraw_survival,
+                             TTD.df %>% ungroup() %>% select(Sample, Species, Strain) %>% distinct())
+# convert the columns of the independent variables to factors
+CFUraw_survival$Temp <- as.factor(CFUraw_survival$Temp)
+CFUraw_survival$Species <- as.factor(CFUraw_survival$Species)
+CFUraw_survival$Inoculum <- as.factor(CFUraw_survival$Inoculum)
+# re-order the Sample factors for more distinct colour plotting
+CFUraw_survival$Sample <- factor(CFUraw_survival$Sample, levels=c("BSC001", "BSC004", "BSC007", "CK101", "BSC002", "BSC005", "BSC008", "CK102", "BSC003", "BSC006", "BSC010","CK103", "BSC009", "BSC019", "BSC015", "CK104"))
+
+# do the anova
+  # no interaction
+survival.anova <- aov(survival ~ Inoculum + Species + Temp, data = CFUraw_survival)
+  # interaction
+survival.anova.ALLinteractions <- aov(survival ~ Inoculum * Species * Temp, data = CFUraw_survival)
+# use AIC to select the preferred model
+model.set <- list(survival.anova, survival.anova.ALLinteractions)
+model.names <- c("two.way", "interaction")
+aictab(model.set, modnames = model.names)
+
+# display the results
+summary(survival.anova.ALLinteractions)
+TukeyHSD(survival.anova.ALLinteractions)
+
+# visualize the raw data
+ggplot(CFUraw_survival,
+       aes(y=survival, x=Species)) +
+  facet_grid(Inoculum ~ Temp) +
+  geom_hline(yintercept = 1) +
+  geom_jitter(width=0.2, alpha=0.5, aes(colour=Sample)) +
+  # show the mean and confidence intervals using "mean_cl_boot": nonparametric bootstrap for obtaining confidence limits for the population mean without assuming normality
+  stat_summary(fun.data = "mean_cl_boot", color = "black", alpha=0.7, size=0.2, na.rm = TRUE)+
+  theme(axis.text.x=element_text(angle = 60, hjust = 0.95),
+        legend.position="none") +
+  labs(y="Effect Size (CFU of Inocula)")
+
+ggplot(CFUraw_survival,
+       aes(y=survival, x=Species)) +
+  facet_grid(Inoculum ~ Temp) +
+  geom_hline(yintercept = 1) +
+  geom_jitter(width=0.2, alpha=0.5, aes(colour=Sample)) +
+  # show the mean and confidence intervals using "mean_cl_boot": nonparametric bootstrap for obtaining confidence limits for the population mean without assuming normality
+  stat_summary(fun.data = "mean_cl_boot", color = "black", alpha=0.7, size=0.2, na.rm = TRUE)+
+  theme(axis.text.x=element_text(angle = 60, hjust = 0.95)) +
+  labs(y="Effect Size (CFU stress/CFU 28*C)")
+
+plot.CFU_survival <- CFUraw_survival %>% filter(Sample %in% c("BSC019", "CK101", "BSC001", "BSC004")) %>%
+                      group_by(Sample, Species, Inoculum, Temp) %>%
+                        dplyr::summarize(mean_survival = mean_cl_boot(survival)$y,
+                                         lwr_CI = mean_cl_boot(survival)$ymin,
+                                         upr_CI = mean_cl_boot(survival)$ymax)
+plot.CFU_survival$Shape <- ifelse(plot.CFU_survival$mean_survival==0, "\u2620", "\u25cf")
+plot.CFU_survivalEXP <- plot.CFU_survival %>% filter(Inoculum == "Exponential")
+ggplot(plot.CFU_survivalEXP,
+       aes(y=mean_survival, x=Temp, colour=factor(Species))) +
+  geom_hline(yintercept = 1, alpha=0.5) +
+  geom_point(position = position_dodge(width = 0.5), shape=plot.CFU_survivalEXP$Shape, size=4) +
+  geom_errorbar(aes(ymin=lwr_CI, ymax=upr_CI), position = position_dodge(width = 0.5), width=0.1) +
+  scale_colour_manual(values=sp_palette[c(1,4:6)]) +
+  scale_y_continuous(limits=c(0,1.6)) +
+  labs(y = paste0("Effect Size (CFU at stress/CFU at 28", "\u00B0", "C)"),
+       x = paste0("Stress Temperature (", "\u00B0", "C)"),
+       title="Exponential Culture",
+       colour="Species")
+rm(plot.CFU_survivalEXP)
+plot.CFU_survivalSTA <- plot.CFU_survival %>% filter(Inoculum == "Stationary")
+ggplot(plot.CFU_survivalSTA,
+       aes(y=mean_survival, x=Temp, colour=factor(Species))) +
+  geom_hline(yintercept = 1, alpha=0.5) +
+  geom_point(position = position_dodge(width = 0.5), shape=plot.CFU_survivalSTA$Shape, size=4) +
+  geom_errorbar(aes(ymin=lwr_CI, ymax=upr_CI), position = position_dodge(width = 0.5), width=0.1) +
+  scale_colour_manual(values=sp_palette[c(1,4:6)]) +
+  scale_y_continuous(limits=c(0,1.6)) +
+  labs(y = paste0("Effect Size (CFU at stress/CFU at 28", "\u00B0", "C)"),
+       x = paste0("Stress Temperature (", "\u00B0", "C)"),
+       title="Stationary Culture",
+       colour="Species")
+rm(plot.CFU_survivalSTA, plot.CFU_survival)
+
+# clean up all the CFU data.frames that we will not need anymore
+#rm(CFUraw_inocula, CFUraw_survival, survival.anova, survival.anova.ALLinteractions, model.set, model.names)
+```
+
+Let's plot the mean values.
+Here the code for the plot from my January 2024 poster (note that it doesn't look exactly the same because the data has changed):
+```{r, plot_CFUsurvival_3sp, eval=FALSE}
+# add the species data to CFU_survival.df
+CFU_survival.df <- left_join(CFU_survival.df,
+                             TTD.df %>% ungroup() %>% select(Sample, Species, Strain) %>% distinct())
+
+CFU_3sp <- CFU_survival.df %>% filter(Species %in% c("P. putida", "P. veronii", "P. knackmussii"),
+                                      Inoculum == "Exponential")
+# add jitter manually but in such a way that it will be the same for all plots
+jitter.df <- TTD.df %>% select(Sample, Species, Strain, Temp, Inoculum) %>% distinct()
+jitter_width = 0.5
+set.seed(114)
+jitter.df$jitterTemp <- jitter.df$Temp + runif(nrow(jitter.df), min=-jitter_width, max=jitter_width)
+
+# join the jitter to the survival values
+CFU_3sp <- left_join(CFU_3sp,
+                     jitter.df %>% filter(Inoculum == "Exponential", Temp %in% c(35, 40)))
+
+# plot the survival values from CFU's
+ggplot(CFU_3sp, aes(x=jitterTemp, y=mean_surviv, colour=Species)) +
+  geom_hline(yintercept = 0, colour="grey") +
+  scale_colour_manual(values=c("#9632B8","#EEA236","#357EBD")) +
+  scale_y_continuous(breaks = c(0,0.5,1)) +
+  scale_x_continuous(limits=c(33, 42), breaks=c(35,40)) +
+  geom_point(alpha=0.6) +
+  geom_errorbar(aes(ymin=mean_surviv-sd_surviv, ymax=mean_surviv+sd_surviv),
+                width=0, alpha=0.6) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y="Survival")
+
+rm(CFU_3sp)
+```
+
+Here it is again for the entire data-set:
+```{r, plot_CFUsurvival, eval=FALSE}
+# join the jitter to the survival values
+CFU_plot <- left_join(CFU_survival.df,
+                      jitter.df %>% filter(Temp %in% c(35, 40)))
+
+# plot the survival values from CFU's
+ggplot(CFU_plot %>% filter(Inoculum == "Exponential"),
+       aes(x=jitterTemp, y=mean_surviv, colour=Species)) +
+  geom_hline(yintercept = 0, colour="grey") +
+  scale_y_continuous(breaks = c(0,0.5,1)) +
+  scale_x_continuous(limits=c(33, 42), breaks=c(35,40)) +
+  geom_point(alpha=0.6) +
+  geom_errorbar(aes(ymin=mean_surviv-sd_surviv, ymax=mean_surviv+sd_surviv),
+                width=0, alpha=0.6) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y="Survival",
+       title="Effect of Species for Exponential Phase Inoculum")
+
+ggplot(CFU_plot %>% filter(Inoculum == "Stationary"),
+       aes(x=jitterTemp, y=mean_surviv, colour=Species)) +
+  geom_hline(yintercept = 0, colour="grey") +
+  scale_y_continuous(breaks = c(0,0.5,1)) +
+  scale_x_continuous(limits=c(33, 42), breaks=c(35,40)) +
+  geom_point(alpha=0.6, shape=17) +
+  geom_errorbar(aes(ymin=mean_surviv-sd_surviv, ymax=mean_surviv+sd_surviv),
+                width=0, alpha=0.6) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y="Survival",
+       title="Effect of Species for Stationary Phase Inoculum")
+
+ggplot(CFU_plot, aes(x=jitterTemp, y=mean_surviv, colour=Species, shape=Inoculum)) +
+  geom_hline(yintercept = 0, colour="grey") +
+  scale_y_continuous(breaks = c(0,0.5,1)) +
+  scale_x_continuous(limits=c(33, 42), breaks=c(35,40)) +
+  geom_point(alpha=0.6) +
+  geom_errorbar(aes(ymin=mean_surviv-sd_surviv, ymax=mean_surviv+sd_surviv),
+                width=0, alpha=0.6) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y="Survival",
+       title="Effect of Species & Inoculum")
+
+ggplot(CFU_plot, aes(x=jitterTemp, y=mean_surviv, colour=Inoculum)) +
+  geom_hline(yintercept = 0, colour="grey") +
+  scale_y_continuous(breaks = c(0,0.5,1)) +
+  scale_x_continuous(limits=c(33, 42), breaks=c(35,40)) +
+  geom_point(alpha=0.6) +
+  geom_errorbar(aes(ymin=mean_surviv-sd_surviv, ymax=mean_surviv+sd_surviv),
+                width=0, alpha=0.6) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y="Survival")
+```
+
+Growth on solid (CFU's) is not the same as growth in liquid, even if the medium itself has the same nutrients. Let's see how the survival data from the growth curves compares to survival data from the CFU's.
+
+Use the data from both the higher and the lower TTD cutoffs as a binary indicator of growth (i.e., if we failed to find you at both cutoffs, then we assume that you didn't grow at all). AKA survival at different temperatures.
+
+```{r, survival_fromCurves}
+binary_survival <- TTD.df
+
+# convert the data TTD data into binary survival for both thresholds
+binary_survival$TTD_0.05  <- !is.na(binary_survival$TTD_0.05)
+binary_survival$TTD_0.13  <- !is.na(binary_survival$TTD_0.13)
+# let's condense the TTD binary data by assuming that if you returned TRUE in either of the thresholds, then you grew.
+binary_survival$TTD <- binary_survival$TTD_0.05 | binary_survival$TTD_0.13
+
+# similarly, convert the CFU survival data into binary values
+binary_survival$CFU_survival <- binary_survival$mean_surviv > 0
+
+# summarize the binary growth data into fraction of all replicates when growth was observed
+binary_survival <- binary_survival %>% select(Sample, Species, Temp, Inoculum, Dilution, TTD, CFU_survival) %>% # keep just the meta-data and the TTD binary survival
+                    group_by(Sample, Temp, Inoculum) %>%
+                      summarise(fraction_batch=mean(TTD),
+                                fraction_CFU=mean(CFU_survival))
+# change CFU_survival to a factor
+binary_survival$fraction_CFU <- as.logical(binary_survival$fraction_CFU)
+
+ggplot(binary_survival,
+       aes(y=fraction_CFU, x=fraction_batch)) +
+  geom_jitter(width=0.01, height=0.1, alpha=0.2) +
+  labs(y="Observed growth by CFU?",
+       x="Fraction of batch cultures that grew")
+```
+
+...Make a plot of the survival based on growth curves and the survival based on CFU...
+
+## Analyze TTD data
+
+Now that we have the CFU counts loaded in with the TTD data, it is possible to summarize the information contained from the dilution TTD values into just one estimate for the growth rate, following [Mytilinaios et al. 2015](https://doi.org/10.1111/jam.12695).
+
+From `plate_reader_calibration.Rmd`, I am using a very rough estimate to convert the inoculum estimate from CFU into OD. By re-arranging the classic equation $N_t = N_0 e^{rt}$, we see that there is a linear relationship between $ln \left( \frac{N_t}{N_0} \right) = \mu \cdot t$. $N_t$ is the OD threshold that we chose to use (so, 0.05 for now), $N_0$ is the inoculum estimate, and $t$ is the time to detection (TTD). So if we put $ln \left( \frac{N_t}{N_0} \right)$ on the y-axis and TTD on the x-axis, the slope of the line will be $\mu$.
+
+```{r, growth_dilutions}
+# create a new data.frame for storing final estimates
+growth_dilutions <- TTD.df #%>% filter(Inoculum=="Exponential", Sample %in% paste0("BSC00",1:8))
+
+# log convert the surviving N0
+growth_dilutions$log10_surviving_N0 <- log10(growth_dilutions$surviving_N0)
+
+# convert the N0 from CFU to OD
+convert_CFU_to_OD <- function(CFU) {
+  if (CFU > 0){
+    return( 10^(-6.2836767 + 0.8954706*log10(CFU)) )
+  } else { # remove 0 values from data as these will yield division by 0
+    return(NA)
+  }
+}
+
+# estimate ln(N_t / N_0) in units of OD
+growth_dilutions$inferredOD_survivingN0 <- sapply(growth_dilutions$surviving_N0,
+                                                  convert_CFU_to_OD)
+growth_dilutions <- growth_dilutions %>% mutate(ln_Ntsmall_over_N0 = log(0.05 / inferredOD_survivingN0),
+                                                ln_Ntbig_over_N0 = log(0.13 / inferredOD_survivingN0))
+  
+ggplot(growth_dilutions %>% filter(Inoculum=="Exponential"),
+          aes(y=ln_Ntsmall_over_N0, x=TTD_0.05, group=Temp, colour=as.factor(Temp))) +
+        facet_wrap(vars(Sample)) +
+        geom_point(alpha=0.5) +
+        geom_smooth(se=FALSE, method="lm", size=0.2) +
+        labs(title="Exponential; TTD cut-off 0.05",
+             y="ln(0.05 / OD converted surviving N0)",
+             x="Time to Detection (hrs)")
+
+ggplot(growth_dilutions %>% filter(Inoculum=="Exponential"),
+          aes(y=ln_Ntbig_over_N0, x=TTD_0.13, group=Temp, colour=as.factor(Temp))) +
+        facet_wrap(vars(Sample)) +
+        geom_point(alpha=0.5) +
+        geom_smooth(se=FALSE, method="lm", size=0.2) +
+        labs(title="Exponential; TTD cut-off 0.13",
+             y="ln(0.13 / OD converted surviving N0)",
+             x="Time to Detection (hrs)")
+
+ggplot(growth_dilutions %>% filter(Inoculum=="Stationary"),
+          aes(y=ln_Ntsmall_over_N0, x=TTD_0.05, group=Temp, colour=as.factor(Temp))) +
+        facet_wrap(vars(Sample)) +
+        geom_point(alpha=0.5) +
+        geom_smooth(se=FALSE, method="lm", size=0.2) +
+        labs(title="Stationary; TTD cut-off 0.05",
+             y="ln(0.05 / OD converted surviving N0)",
+             x="Time to Detection (hrs)")
+
+ggplot(growth_dilutions %>% filter(Inoculum=="Stationary"),
+          aes(y=ln_Ntbig_over_N0, x=TTD_0.13, group=Temp, colour=as.factor(Temp))) +
+        facet_wrap(vars(Sample)) +
+        geom_point(alpha=0.5) +
+        geom_smooth(se=FALSE, method="lm", size=0.2) +
+        labs(title="Stationary; TTD cut-off 0.13",
+             y="ln(0.13 / OD converted surviving N0)",
+             x="Time to Detection (hrs)")
+
+# initialize variable for storage
+Dil_growthrates.df <- data.frame(matrix(nrow=0, ncol=7))
+
+# calculate the slope, sd, and r-squared of the slope
+for(sam in unique(growth_dilutions$Sample)){
+  for(t in unique(growth_dilutions$Temp)){
+    for(inoc in unique(growth_dilutions$Inoculum)){
+      
+      temp.df <- growth_dilutions %>% filter(Sample==sam, Temp==t, Inoculum==inoc)
+      if(sum(temp.df$mean_surviv, na.rm=TRUE)>0 # if CFU data indicates cells can survive
+          &                                     # and
+         sum(!is.na(temp.df$TTD_0.05))>2){      # there are 3 or more non-NA TTD values
+        # fit the linear model directly on the raw CFU
+        tmp_lm <- lm(TTD_0.05 ~ log10_surviving_N0, temp.df)
+        # fit the linear model on ln(N_t / N_0) for N0 converted from CFU to OD
+        tmpOD_lm <- lm(TTD_0.05 ~ ln_Ntsmall_over_N0, temp.df)
+        # store the values
+        Dil_growthrates.df <- rbind(Dil_growthrates.df,
+                                    c(sam, t, inoc,
+                                      exp(coef(tmp_lm)[2]), # mean growth rate
+                                      exp(coef(tmp_lm)[2]-1.645*sqrt(diag(vcov(tmp_lm)))[2]), # lower CI of growth rate
+                                      exp(coef(tmp_lm)[2]+1.645*sqrt(diag(vcov(tmp_lm)))[2]), # upper CI of growth rate
+                                      summary(tmp_lm)$r.squared, # multiple R-squared
+                                      # also get the summary statistics for the lm with converted OD
+                                      1/coef(tmpOD_lm)[2],
+                                      1/(coef(tmpOD_lm)[2]+1.645*sqrt(diag(vcov(tmp_lm)))[2]),
+                                      1/(coef(tmpOD_lm)[2]-1.645*sqrt(diag(vcov(tmp_lm)))[2]),
+                                      summary(tmpOD_lm)$r.squared)
+                                    )
+      }
+      if(sum(temp.df$mean_surviv, na.rm=TRUE)==0 # if CFU data indicates cells CANNOT survive
+          |                                      # or
+         sum(!is.na(temp.df$TTD_0.05))<3){       # if there are less than 3 non-NA TTD values
+        # store NA values
+        Dil_growthrates.df <- rbind(Dil_growthrates.df,
+                                    c(sam, t, inoc, rep(NA, 8))
+                                    )
+        tmp_lm <- temp.df <- tmpOD_lm <- NA
+      }
+      rm(tmp_lm, temp.df, tmpOD_lm)
+    }
+  }
+}
+
+# update the column names
+colnames(Dil_growthrates.df) <- c("Sample", "Temp", "Inoculum",
+                                  "mu", "mu_lo_CI", "mu_hi_CI", "r_sq",
+                                  "OD_mu", "OD_mu_lo_CI", "OD_mu_hi_CI", "OD_r_sq")
+# change Temp to a numeric from character
+Dil_growthrates.df$Temp <- as.numeric(Dil_growthrates.df$Temp)
+# change mu to a numeric from character
+Dil_growthrates.df$mu <- as.numeric(Dil_growthrates.df$mu)
+Dil_growthrates.df$OD_mu <- as.numeric(Dil_growthrates.df$OD_mu)
+# change mu_lo_CI to a numeric from character
+Dil_growthrates.df$mu_lo_CI <- as.numeric(Dil_growthrates.df$mu_lo_CI)
+Dil_growthrates.df$OD_mu_lo_CI <- as.numeric(Dil_growthrates.df$OD_mu_lo_CI)
+# change mu_hi_CI to a numeric from character
+Dil_growthrates.df$mu_hi_CI <- as.numeric(Dil_growthrates.df$mu_hi_CI)
+Dil_growthrates.df$OD_mu_hi_CI <- as.numeric(Dil_growthrates.df$OD_mu_hi_CI)
+# change r_sq to a numeric from character
+Dil_growthrates.df$r_sq <- as.numeric(Dil_growthrates.df$r_sq)
+Dil_growthrates.df$OD_r_sq <- as.numeric(Dil_growthrates.df$OD_r_sq)
+
+
+# add species/strain annotation
+Dil_growthrates.df <- left_join(Dil_growthrates.df,
+                                TTD.df %>% select(Sample, Species, Strain) %>% distinct())
+
+# check the r-squared values
+with(Dil_growthrates.df, hist(r_sq))
+# plot just the linear regressions that had an r-sq < 0.9 (there are 11 of them in total)
+  # make a temporary data.frame for just the data whose linear regression r-sq are too small
+temp.low_rsq <- Dil_growthrates.df %>% filter(r_sq < 0.9) %>% filter(r_sq > 0.85) %>% select(Sample, Temp, Inoculum)
+temp.low_rsq <- inner_join(temp.low_rsq, growth_dilutions) %>%
+                  unite("sam_temp_inoc", c(Sample, Temp, Inoculum), remove=FALSE)
+  # plot
+ggplot(temp.low_rsq,
+       aes(x=log10_surviving_N0, y=TTD_0.05)) +
+        facet_wrap(vars(sam_temp_inoc)) +
+        geom_point(alpha=0.5) +
+        geom_smooth(se=FALSE, method="lm", size=0.2) +
+        labs(title="lm: 0.85 < r-sq < 0.9", x="log of N0",
+             y="Time to Detection (hrs)")
+# do the same thing to plot linear regressions that were below 0.85
+  # make a temporary data.frame for just the data whose linear regression r-sq are too small
+temp.low_rsq <- Dil_growthrates.df %>% filter(r_sq < 0.85) %>% select(Sample, Temp, Inoculum)
+temp.low_rsq <- inner_join(temp.low_rsq, growth_dilutions) %>%
+                  unite("sam_temp_inoc", c(Sample, Temp, Inoculum), remove=FALSE)
+  # plot
+ggplot(temp.low_rsq,
+       aes(x=log10_surviving_N0, y=TTD_0.05)) +
+        facet_wrap(vars(sam_temp_inoc)) +
+        geom_point(alpha=0.5) +
+        geom_smooth(se=FALSE, method="lm", size=0.2) +
+        labs(title="lm: r-sq < 0.85", x="log of N0",
+             y="Time to Detection (hrs)")
+
+# modify any observed NA values into zero's (because that's what they should be)
+# NOTE THAT NOT ALL NA'S ARE ZEROS!: currently BSC008 exponential CFU data is missing and yielding spurious NA values
+#Dil_growthrates.df$mu[is.na(Dil_growthrates.df$mu)] <- 0
+
+# plot
+ggplot(Dil_growthrates.df,
+       aes(x=Temp, y=mu, colour=Species, group=Species)) +
+  facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess") +
+  geom_point(alpha=0.25, na.rm=TRUE, position=position_dodge(width=1)) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0.5, alpha=0.25, na.rm=TRUE, position=position_dodge(width=1)) +
+  scale_colour_manual(values=sp_palette) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")"))
+       )#+
+  #theme(legend.position="none")
+
+ggplot(Dil_growthrates.df,
+       aes(x=Temp, y=mu, colour=Species, group=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess",
+  #          #formula=???,
+            ) +
+  geom_point(alpha=0.2, na.rm=TRUE, position=position_dodge(width=1)) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0, alpha=0.2, na.rm=TRUE, position=position_dodge(width=1)) +
+  scale_y_log10() +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")"))
+       )
+
+# schematic of my 4 species that I want to look at (2 fast/2 slow x 2 sensitive/2 resistant)
+ggplot(Dil_growthrates.df %>% filter(Species %in% c("P. plecoglossicida","P. putida", "P. veronii", "P. knackmussii")),
+       aes(x=Temp, y=mu, colour=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess") +
+  #geom_point(alpha=0.25, na.rm=TRUE, position=position_dodge(width=1)) +
+  #geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+  #              width=0.5, alpha=0.25, na.rm=TRUE, position=position_dodge(width=1)) +
+  scale_colour_manual(values=sp_palette[c(2:3,5:6)]) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")")))
+
+#####
+# Plan A (2-way design)
+#####
+# thermal performance curve of 1st possible fluorescent panel:
+# P. veronii=BFP, P.knackmussii=GFP, P. putida=YFP, P. plecoglossicida-like=red dye
+ggplot(Dil_growthrates.df %>% filter(Sample %in% c("BSC009", "BSC008", "BSC001", "BSC004")),
+       aes(x=Temp, y=mu, colour=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess") +
+  geom_point(alpha=0.25, na.rm=TRUE, position=position_dodge(width=.5)) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0.5, alpha=0.25, na.rm=TRUE, position=position_dodge(width=.5)) +
+  scale_colour_manual(values=sp_palette[c(2:3,5:6)]) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")")),
+       title="Plan A")
+
+# thermal performance curve of 2nd possible fluorescent panel:
+# P. veronii=BFP, P.knackmussii=GFP, P. putida=YFP, P. plecoglossicida-like=red dye
+ggplot(Dil_growthrates.df %>% filter(Sample %in% c("BSC009", "BSC008", "BSC002", "BSC004")),
+       aes(x=Temp, y=mu, colour=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess") +
+  geom_point(alpha=0.25, na.rm=TRUE, position=position_dodge(width=.5)) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0.5, alpha=0.25, na.rm=TRUE, position=position_dodge(width=0.5)) +
+  scale_colour_manual(values=sp_palette[c(2:3,5:6)]) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")")),
+       title="Panel 2: putida KT2440 YFP (BSC023)")
+
+# thermal performance curve of 3rd possible fluorescent panel:
+# P. putida=BFP, P.knackmussii=GFP, P. veronii=mScarlet, P. plecoglossicida-like=red dye
+ggplot(Dil_growthrates.df %>% filter(Sample %in% c("BSC009", "BSC008", "BSC003", "BSC005")),
+       aes(x=Temp, y=mu, colour=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess") +
+  geom_point(alpha=0.25, na.rm=TRUE, position=position_dodge(width=.5)) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0.5, alpha=0.25, na.rm=TRUE, position=position_dodge(width=.5)) +
+  scale_colour_manual(values=sp_palette[c(2:3,5:6)]) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")")),
+       title="Panel 3: putida uwc 2 BFP (BSC003), veronii mScarlet")
+
+#####
+# Plan B (increasing growth rates at 30*C and heat at 40*C
+#####
+# thermal performance curve of 1st possible fluorescent panel:
+# P. veronii=BFP, P.grimontii=GFP, P. putida=YFP, P.protegens=mTourqoise
+plot_growthrates.df <- Dil_growthrates.df %>% filter(Sample %in% c("BSC019", "CK101", "BSC001", "BSC005"),
+                                                     Inoculum == "Exponential")
+plot_growthrates.df$mu[which(is.na(plot_growthrates.df$mu))] <- 0
+plot_growthrates.df$Shape <- ifelse(plot_growthrates.df$mu==0, "\u2620", "\u25cf")
+ggplot(plot_growthrates.df,
+       aes(x=Temp, y=OD_mu, colour=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess", alpha=0.5) +
+  geom_point(position=position_dodge(width=.5),
+             shape = plot_growthrates.df$Shape, size=4) +
+  geom_errorbar(aes(ymin=OD_mu_lo_CI, ymax=OD_mu_hi_CI),
+                width=1, na.rm=TRUE, position=position_dodge(width=.5)) +
+  scale_colour_manual(values=sp_palette[c(1,4:6)]) +
+  #scale_y_continuous(limits=c(0,0.25)) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")")),
+       title="Exponential Inoculum")
+rm(plot_growthrates.df)
+
+plot_growthrates.df <- Dil_growthrates.df %>% filter(Sample %in% c("BSC019", "CK101", "BSC001", "BSC005"),
+                                                     Inoculum == "Stationary")
+plot_growthrates.df$mu[which(is.na(plot_growthrates.df$mu))] <- 0
+plot_growthrates.df$Shape <- ifelse(plot_growthrates.df$mu==0, "\u2620", "\u25cf")
+ggplot(plot_growthrates.df,
+       aes(x=Temp, y=OD_mu, colour=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess", alpha=0.5) +
+  geom_point(position=position_dodge(width=.5),
+             shape = plot_growthrates.df$Shape, size=4) +
+  geom_errorbar(aes(ymin=OD_mu_lo_CI, ymax=OD_mu_hi_CI),
+                width=1, na.rm=TRUE, position=position_dodge(width=.5)) +
+  scale_colour_manual(values=sp_palette[c(1,4:6)]) +
+  #scale_y_continuous(limits=c(0,0.25)) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")")),
+       title="Stationary Inoculum")
+rm(plot_growthrates.df)
+
+####
+# All 6 species with little skulls
+####
+plot_growthrates.df <- Dil_growthrates.df %>% filter(Inoculum == "Stationary")
+plot_growthrates.df$mu[which(is.na(plot_growthrates.df$mu))] <- 0
+plot_growthrates.df$Shape <- ifelse(plot_growthrates.df$mu==0, "\u2620", "\u25cf")
+ggplot(plot_growthrates.df,
+       aes(x=Temp, y=mu, colour=Species)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp), stat="smooth", method="loess") +
+  geom_point(position=position_dodge(width=.5),
+             shape = plot_growthrates.df$Shape, size=4,
+             alpha=0.5) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=1, na.rm=TRUE, position=position_dodge(width=.5)) +
+  scale_colour_manual(values=sp_palette) +
+  #scale_y_continuous(limits=c(0,0.23)) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate (", hr^{-1},")")),
+       title="Stationary Inoculum")
+rm(plot_growthrates.df)
+
+
+#####
+# Research Practical
+#####
+plot_growthrates.df <- Dil_growthrates.df %>% filter(Sample %in% c("BSC001", "BSC004"))
+plot_growthrates.df$mu[which(is.na(plot_growthrates.df$mu))] <- 0
+plot_growthrates.df$Shape <- ifelse(plot_growthrates.df$mu==0, "\u2620", "\u25cf")
+ggplot(plot_growthrates.df,
+       aes(x=Temp, y=mu, colour=Species, group=Inoculum)) +
+  #facet_grid(. ~ Inoculum) +
+  # add a smoothed line to join the different temperatures
+  geom_line(aes(x=Temp, group=Species), stat="smooth", method="loess", alpha=0.5) +
+  geom_point(position=position_dodge(width=1),
+             shape = plot_growthrates.df$Shape, size=4) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=.5, na.rm=TRUE, position=position_dodge(width=1)) +
+  scale_colour_manual(values=sp_palette[c(5,2)]) +
+  #scale_y_continuous(limits=c(0,0.23)) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Biomass Growth Rate ", (hr^{-1}))))
+rm(plot_growthrates.df)
+
+
+
+# plot the data a different way to compare the effect of inoculum phase on estimated growth rate
+ggplot(Dil_growthrates.df,
+       aes(x=Species, y=mu, colour=Inoculum)) +
+  facet_wrap(vars(Temp), scales="free") +
+  geom_point(alpha=0.5) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0, alpha=0.5) +
+  labs(x=paste0("Species"),
+       y=expression(paste("Net Growth Rate (", hr^{-1},")"))
+       ) +
+  theme(axis.text.x=element_blank())
+
+
+# to plot the effect size on batch culture growth rate, we need to first calculate the growth rate relative to 30*C
+relative_growthrates <- Dil_growthrates.df %>% filter(Temp > 30) %>% select(-r_sq)
+# add the growth rate at 30*C and its CI's back as a column
+temp_30growth <- Dil_growthrates.df %>% filter(Temp == 30) %>%
+                  select(-r_sq, -Species, -Strain, -Temp) %>%
+                    rename(mu30=mu, mu30_lo_CI=mu_lo_CI, mu30_hi_CI=mu_hi_CI)
+relative_growthrates <- left_join(relative_growthrates, temp_30growth)
+# calculate the effect size
+relative_growthrates <- relative_growthrates %>% mutate(relative_mu = mu/mu30)
+
+ggplot(relative_growthrates,
+       aes(y=relative_mu, x=Species)) +
+  facet_grid(Inoculum ~ Temp) +
+  geom_hline(yintercept = 1) +
+  geom_jitter(width=0.2, alpha=0.5, aes(colour=Sample)) +
+  # show the mean and confidence intervals using "mean_cl_boot": nonparametric bootstrap for obtaining confidence limits for the population mean without assuming normality
+  #stat_summary(fun.data = "mean_cl_boot", color = "black", alpha=0.7, size=0.2, na.rm = TRUE)+
+  theme(axis.text.x=element_text(angle = 60, hjust = 0.95),
+        legend.position="none") +
+  labs(y="Effect Size (Batch culture growth)",
+       title="Mean growth rate compared to 30*C")
+
+rm(temp.low_rsq)
+```
+From the plots of the entire data, it seems that only BSC019 at 35C (definitely stationary and perhaps also exponential phase inoculum) is exhibiting a clear lag time (i.e., non-linear trend where the time to detection is smaller than expected for high inoculum sizes). It would be good to know which samples were started off *above* the threshold of detection to understand if there really is no lag time here.
+
+Most of the growth curves yielded a good linear relationship with the starting inoculum size (linear regression $r^2 > 0.90$). Above I have plotted the linear regressions that had $r^2$ values below 0.90. Honestly, by eye the only linear regression I would drop is for BSC005 exponential at 35C (this would make the cut off $r^2 > 0.70$).
+
+Notice that BSC019 (at all temperatures) consistently had an $r^2$ above 0.9, although it looks like it is exhibiting a non-linear trend. This is annoying because it suggests that $r^2$ alone is not a good metric for what I'm trying to see. It may be a good idea to use AIC to compare the linear model against a quadratic/cubic or a polynomial fit. Then it would be possible to report which samples/temperatures/inoculum-phase exhibited no lag (i.e., linear trend preferred) or something else (i.e., non-linear trend).
+
+Finally, it seems that the estimates for the growth rates in fact do not depend at all on the starting inoculum phase. Given that we have already taken into account the inoculum size using CFU estimates and survival, this is quite reassuring and as expected. I will keep the exponential and stationary inoculum size data and use it to increase the number of replicates when fitting the Arrhenius equation.
+
+## Change in Rank with temperature
+
+Is the rank order of species predictable across the different temperatures? I think we can do either a Friedman test or a Page trend test to check for this. As far as I understand, here we are interested in Species as the group and temperature as the block: is one species consistently the fastest or slowest grower across all temperature environments?
+
+????? I'm not sure about this. Maybe it's the opposite: Temperature is a group and Species is a block...???
+
+Note that neither of these tests are ideal for my question because their null hypothesis is that the central tendency is the same across all groups. This means that predictability happens when the null hypothesis fails to be rejected...
+
+```{r, rank_change}
+rank_df <- Dil_growthrates.df %>% select(Temp, Inoculum, mu, Species)
+# NA values are actually 0's
+rank_df$mu[which(is.na(rank_df$mu))] <- 0
+
+
+# test the rank in exponential phase
+print("### RANK FOR 6 SP. IN EXPONENTIAL PHASE ###")
+rank_exp_df <- rank_df %>% filter(Inoculum == "Exponential") %>%
+                group_by(Species, Temp) %>% summarise(mean_mu = mean(mu))
+friedman.test(y = rank_exp_df$mean_mu, groups = rank_exp_df$Species, blocks = rank_exp_df$Temp)
+PageTest(y = rank_exp_df$mean_mu, groups = rank_exp_df$Species, blocks = rank_exp_df$Temp)
+
+# test the rank in stationary phase
+print("### RANK FOR 6 SP. IN STATIONARY PHASE ###")
+rank_sta_df <- rank_df %>% filter(Inoculum == "Stationary") %>%
+                group_by(Species, Temp) %>% summarise(mean_mu = mean(mu))
+friedman.test(y = rank_sta_df$mean_mu, groups = rank_sta_df$Species, blocks = rank_sta_df$Temp)
+PageTest(y = rank_sta_df$mean_mu, groups = rank_sta_df$Species, blocks = rank_sta_df$Temp)
+
+# let's check that the test is working as we expect...
+print("### RANK FOR 4 focal SP. IN Exponential PHASE ###")
+rank4sp_exp <- rank_df %>% filter(Inoculum == "Exponential",
+                              Species %in% c("P. putida", "P. protegens", "P. grimontii", "P. veronii")) %>%
+                group_by(Species, Temp) %>% summarise(mean_mu = mean(mu))
+friedman.test(y = rank4sp_exp$mean_mu, groups = rank4sp_exp$Species, blocks = rank4sp_exp$Temp)
+PageTest(y = rank4sp_exp$mean_mu, groups = rank4sp_exp$Species, blocks = rank4sp_exp$Temp)
+
+print("### RANK FOR 4 focal SP. IN Stationary PHASE ###")
+rank4sp_sta <- rank_df %>% filter(Inoculum == "Stationary",
+                              Species %in% c("P. putida", "P. protegens", "P. grimontii", "P. veronii")) %>%
+                group_by(Species, Temp) %>% summarise(mean_mu = mean(mu))
+friedman.test(y = rank4sp_sta$mean_mu, groups = rank4sp_sta$Species, blocks = rank4sp_sta$Temp)
+PageTest(y = rank4sp_sta$mean_mu, groups = rank4sp_sta$Species, blocks = rank4sp_sta$Temp)
+```
+
+The Page trend test is not significant for any of the species. This means that there is no significant non-parameteric *trend* in species ranks. 
+
+## (Fitting an Arrhenius equation to growth rate data)
+
+Here is some code below where I tried to fit an entirely arbitrary Arrhenius equation.
+Instead of using `method = loess` it would be much more reasonable to fit an Arrhenius equation.
+
+Here is some code below where I tried to fit an entirely arbitrary Arrhenius equation from [Corkrey et al. 2012](https://doi.org/10.1371/journal.pone.0032003). The model didn't fit the data very well at all. That's why I've commented it out.
+
+```{r, Corkrey--thermal_performance, eval=FALSE}
+# Specify the thermal performance curve from Corkrey et al. 2012
+predicted_growthrate <- function(const, Temp_in_C){
+  # the scaling constant is the only thing that's not given in the paper so I'm using that as an unknown value with the same prior distribution as used in the paper to fit the thermal performance curve for each of the 3 species
+  K <- Temp_in_C + 273.15 # convert to Kelvin
+  # all the following values are taken directly from the paper
+  R <- 8.314 # gas constant
+  deltaH_star <- 4970 # Enthalpy change (Table 1)
+  deltaS_star <- 17.2 # Entropy change (Table 1)
+  T_H <- 375.6 # Convergence temperature for enthalpy (Table 1)
+  T_S <- 390.2 # Convergence temperature for entropy (Table 1)
+  deltaH_A <- 67549 # enthalpy of activation for all bacteria (Table 2)
+  deltaC <- 62.9 # Heat capacity change for all bacteria (Table 2)
+  n_aa <- 259.2 # number of a-a residues for all bacteria (Table 2)
+
+  Denominator <- 1+exp(-n_aa*(deltaH_star - K*deltaS_star + deltaC*((K-T_H) - K*log(K/T_S) ))/(R*K)) # from equation 2
+  F_ <- sqrt(K * exp(const-deltaH_A/(R*K)) / Denominator) # from equation 1
+  return(F_)
+  # cleanup
+  rm(K, R, deltaH_star, deltaS_star, T_H, T_S, deltaH_A, deltaC, n_aa, Denominator, F_)
+}
+
+# find the scaling constant for each species by minimizing the residual sum of squares
+SSE_fun <- function(c, which_species){
+  # calculate the square errors
+  df <- Dil_growthrates.df %>%
+          filter(Species == which_species) %>%
+            mutate(SE = (mu-predicted_growthrate(c, Temp))^2)
+  # return the sum
+  return(sum(df$SE))
+  rm(df)
+}
+
+# estimate the best fitting c value for each of the 3 species
+  # use "Brent" method because it allows lower and upper bounds
+Pputida_fit <- optim(20, function(x) SSE_fun(x, "P. putida"),
+                     lower=-2, upper=40, method="Brent") # use the bounds on c from the paper (Table S2)
+Pknack_fit <- optim(20, function(x) SSE_fun(x, "P. knackmussii"),
+                     lower=-2, upper=40, method="Brent")
+Pveron_fit <- optim(20, function(x) SSE_fun(x, "P. veronii"),
+                     lower=-2, upper=40, method="Brent")
+
+# add the estimated model parameters to the data.frame
+Dil_growthrates.df$TPC_c_est <- NA
+Dil_growthrates.df$TPC_c_est[Dil_growthrates.df$Species == "P. putida"] <- Pputida_fit$par
+Dil_growthrates.df$TPC_c_est[Dil_growthrates.df$Species == "P. knackmussii"] <- Pknack_fit$par
+Dil_growthrates.df$TPC_c_est[Dil_growthrates.df$Species == "P. veronii"] <- Pveron_fit$par
+# add the model predictions to the data.frame
+Dil_growthrates.df <- Dil_growthrates.df %>% mutate(mu_modelPredict = predicted_growthrate(TPC_c_est, Temp))
+
+# plot the model predictions and the data
+ggplot(Dil_growthrates.df,
+       aes(x=jitterTemp, y=mu, colour=Species)) +
+  # plot the thermal performance curve
+  geom_line(aes(x=Temp, y=mu_modelPredict), alpha=0.5) +
+  geom_point(alpha=0.75) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0, alpha=0.75) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Net Growth Rate (", hr^{-1},")"))
+       )
+
+# cleanup
+rm(Pknack_fit, Pputida_fit, Pveron_fit, sam, t)
+```
+
+As discussed in a [recent article](https://doi.org/10.1038/s41467-024-53046-2), I should do a better analysis of which model is the best one to use. They recommend **1)** using only models with fewer parameters than the number of temperatures (i.e., for us, 3 or less) and **2)** fitting models that are quite different from each other (i.e., illustrated in their dendogram, Fig. 3).
+
+I found [a package by the same lab as above](https://doi.org/10.1111/2041-210X.13585) that allows fitting of multiple thermal performance curves. Here I have just copy/pasted the code from `vignette("fit_many_models")` with the P. knackmussii data to see what it looks like.
+
+TO DO: 
+- select a subset of distinct models with 3 parameters or less
+- fit all the samples to these models to select the single best one
+- get the parameter estimates.
+
+```{r, rTPC--knackmussii, eval=FALSE}
+# write function to label ggplot2 panels
+label_facets_num <- function(string){
+  len <- length(string)
+  string = paste('(', 1:len, ') ', string, sep = '')
+  return(string)
+}
+# keep just the data from a single species
+d <- Dil_growthrates.df %>% filter(Species == "P. knackmussii") %>% select(Temp, mu) %>% rename(temp=Temp, rate=mu)
+# show the data
+ggplot(d, aes(temp, rate)) +
+  geom_point() +
+  theme_bw(base_size = 12) +
+  labs(x = 'Temperature (ºC)',
+       y = 'Growth rate',
+       title = 'Sanity check of the P. knackmussii dataframe')
+
+# manually select the models that are successfully fitted
+d_fits <- nest(d, data = c(temp, rate)) %>%
+  mutate(quadratic = map(data, ~nls_multstart(rate~quadratic_2008(temp = temp, a, b, c),
+                        data = .x,
+                        iter = c(4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'quadratic_2008') - 0.5,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'quadratic_2008') + 0.5,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'quadratic_2008'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'quadratic_2008'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         pawar = map(data, ~nls_multstart(rate~pawar_2018(temp = temp, r_tref, e, eh, topt, tref = 15),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         modifiedgaussian = map(data, ~nls_multstart(rate~modifiedgaussian_2006(temp = temp, rmax, topt, a, b),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'modifiedgaussian_2006') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'modifiedgaussian_2006') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'modifiedgaussian_2006'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'modifiedgaussian_2006'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         lrf = map(data, ~nls_multstart(rate~lrf_1991(temp = temp, rmax, topt, tmin, tmax),
+                  data = d,
+                  iter = c(3,3,3,3),
+                  start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'lrf_1991') - 10,
+                  start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'lrf_1991') + 10,
+                  lower = get_lower_lims(.x$temp, .x$rate, model_name = 'lrf_1991'),
+                  upper = get_upper_lims(.x$temp, .x$rate, model_name = 'lrf_1991'),
+                  supp_errors = 'Y',
+                  convergence_count = FALSE)),
+         lactin2 = map(data, ~nls_multstart(rate~lactin2_1995(temp = temp, a, b, tmax, delta_t),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'lactin2_1995') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'lactin2_1995') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'lactin2_1995'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'lactin2_1995'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         johnson_lewin = map(data, ~suppressWarnings(nls_multstart(rate~ johnsonlewin_1946(temp = temp, r0, e, eh, topt),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'johnsonlewin_1946') - 1,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'johnsonlewin_1946') + 1,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'johnsonlewin_1946'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'johnsonlewin_1946'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE))),
+         hinshelwood = map(data, ~nls_multstart(rate~hinshelwood_1947(temp = temp, a, e, b, eh),
+                        data = .x,
+                        iter = c(5,5,5,5),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'hinshelwood_1947') - 1,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'hinshelwood_1947') + 1,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'hinshelwood_1947'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'hinshelwood_1947'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         gaussian = map(data, ~nls_multstart(rate~gaussian_1987(temp = temp, rmax, topt, a),
+                        data = .x,
+                        iter = c(4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'gaussian_1987') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'gaussian_1987') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'gaussian_1987'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'gaussian_1987'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         flinn = map(data, ~nls_multstart(rate~flinn_1991(temp = temp, a, b, c),
+                        data = .x,
+                        iter = c(5,5,5),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'flinn_1991') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'flinn_1991') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'flinn_1991'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'flinn_1991'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         deutsch = map(data, ~nls_multstart(rate~deutsch_2008(temp = temp, rmax, topt, ctmax, a),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'deutsch_2008') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'deutsch_2008') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'deutsch_2008'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'deutsch_2008'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         briere2 = map(data, ~nls_multstart(rate~briere2_1999(temp = temp, tmin, tmax, a,b),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'briere2_1999') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'briere2_1999') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'briere2_1999'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'briere2_1999'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         ratkowsky = map(data, ~nls_multstart(rate~ratkowsky_1983(temp = temp, tmin, tmax, a, b),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         sharpeschoolhigh = map(data, ~nls_multstart(rate~sharpeschoolhigh_1981(temp = temp, r_tref,e,eh,th, tref = 15),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'sharpeschoolhigh_1981') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'sharpeschoolhigh_1981') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'sharpeschoolhigh_1981'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'sharpeschoolhigh_1981'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         spain = map(data, ~nls_multstart(rate~spain_1982(temp = temp, a,b,c,r0),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'spain_1982') - 1,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'spain_1982') + 1,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'spain_1982'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'spain_1982'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         thomas1 = map(data, ~nls_multstart(rate~thomas_2012(temp = temp, a,b,c,topt),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') - 1,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') + 2,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+          weibull = map(data, ~nls_multstart(rate~weibull_1995(temp = temp, a,topt,b,c),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'weibull_1995') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'weibull_1995') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'weibull_1995'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'weibull_1995'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE))
+         )
+
+glimpse(select(d_fits, 1:7))
+d_fits$quadratic[[1]]
+
+# stack models
+d_stack <- select(d_fits, -data) %>%
+  pivot_longer(., names_to = 'model_name', values_to = 'fit', quadratic:weibull)
+
+# get parameters using tidy
+params <- d_stack %>%
+  mutate(., est = map(fit, tidy)) %>%
+  select(-fit) %>%
+  unnest(est)
+
+# get predictions using augment
+newdata <- tibble(temp = seq(min(d$temp), max(d$temp), length.out = 100))
+d_preds <- d_stack %>%
+  mutate(., preds = map(fit, augment, newdata = newdata)) %>%
+  select(-fit) %>%
+  unnest(preds)
+
+# plot
+ggplot(d_preds, aes(temp, rate)) +
+  geom_point(aes(temp, rate), d) +
+  geom_line(aes(temp, .fitted), col = 'blue') +
+  facet_wrap(~model_name, labeller = labeller(model_name = label_facets_num), scales = 'free', ncol = 5) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = 'none',
+        strip.text = element_text(hjust = 0),
+        strip.background = element_blank()) +
+  labs(x = 'Temperature (ºC)',
+       y = 'Metabolic rate',
+       title = 'Fits of 17 models available in rTPC') +
+  geom_hline(aes(yintercept = 0), linetype = 2)
+```
+
+Models `thomas1`, `ratkowsky`, and `pawar` seem to look the best for all 3 strains. Let's fit and plot them again...
+
+```{r, TPC--3species, eval=FALSE}
+# keep just the data from the first species
+d.p <- Dil_growthrates.df %>% filter(Species == "P. putida") %>% select(Temp, mu) %>% rename(temp=Temp, rate=mu)
+
+# fit the 3 models that looked best by eye
+p_fits <- nest(d.p, data = c(temp, rate)) %>%
+  mutate(thomas1 = map(data, ~nls_multstart(rate~thomas_2012(temp = temp, a,b,c,topt),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') - 1,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') + 2,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         ratkowsky = map(data, ~nls_multstart(rate~ratkowsky_1983(temp = temp, tmin, tmax, a, b),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         pawar = map(data, ~nls_multstart(rate~pawar_2018(temp = temp, r_tref, e, eh, topt, tref = 15),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE))
+  )
+
+# keep just the data from the second species
+d.v <- Dil_growthrates.df %>% filter(Species == "P. veronii") %>% select(Temp, mu) %>% rename(temp=Temp, rate=mu)
+
+# fit the 3 models that looked best by eye
+v_fits <- nest(d.v, data = c(temp, rate)) %>%
+  mutate(thomas1 = map(data, ~nls_multstart(rate~thomas_2012(temp = temp, a,b,c,topt),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') - 1,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') + 2,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         ratkowsky = map(data, ~nls_multstart(rate~ratkowsky_1983(temp = temp, tmin, tmax, a, b),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         pawar = map(data, ~nls_multstart(rate~pawar_2018(temp = temp, r_tref, e, eh, topt, tref = 15),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE))
+  )
+
+# keep just the data from the last species
+d.k <- Dil_growthrates.df %>% filter(Species == "P. knackmussii") %>% select(Temp, mu) %>% rename(temp=Temp, rate=mu)
+
+# fit the 3 models that looked best by eye
+k_fits <- nest(d.k, data = c(temp, rate)) %>%
+  mutate(thomas1 = map(data, ~nls_multstart(rate~thomas_2012(temp = temp, a,b,c,topt),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') - 1,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'thomas_2012') + 2,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'thomas_2012'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         ratkowsky = map(data, ~nls_multstart(rate~ratkowsky_1983(temp = temp, tmin, tmax, a, b),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'ratkowsky_1983') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'ratkowsky_1983'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE)),
+         pawar = map(data, ~nls_multstart(rate~pawar_2018(temp = temp, r_tref, e, eh, topt, tref = 15),
+                        data = .x,
+                        iter = c(4,4,4,4),
+                        start_lower = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') - 10,
+                        start_upper = get_start_vals(.x$temp, .x$rate, model_name = 'pawar_2018') + 10,
+                        lower = get_lower_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        upper = get_upper_lims(.x$temp, .x$rate, model_name = 'pawar_2018'),
+                        supp_errors = 'Y',
+                        convergence_count = FALSE))
+  )
+
+
+# stack models across all 3 species
+model_stack <- select(p_fits, -data) %>%
+  pivot_longer(., names_to = 'model_name', values_to = 'fit', thomas1:pawar)
+model_stack$Species <- "P. putida"
+
+temp <- select(v_fits, -data) %>%
+  pivot_longer(., names_to = 'model_name', values_to = 'fit', thomas1:pawar)
+temp$Species <- "P. veronii"
+model_stack <- rbind(model_stack, temp)
+
+temp <- select(k_fits, -data) %>%
+  pivot_longer(., names_to = 'model_name', values_to = 'fit', thomas1:pawar)
+temp$Species <- "P. knackmussii"
+model_stack <- rbind(model_stack, temp)
+
+#clean up
+rm(temp, d.p, d.v, d.k, p_fits, v_fits, k_fits)
+
+# get the data back again for predictions and plotting
+d <- Dil_growthrates.df %>% select(Species, Temp, mu) %>% rename(temp=Temp, rate=mu)
+
+# get parameters using tidy
+params <- model_stack %>%
+  mutate(., est = map(fit, tidy)) %>%
+  select(-fit) %>%
+  unnest(est)
+
+# get predictions using augment
+newdata <- tibble(temp = seq(min(d$temp), max(d$temp), length.out = 100))
+predictions <- model_stack %>%
+  mutate(., preds = map(fit, augment, newdata = newdata)) %>%
+  select(-fit) %>%
+  unnest(preds)
+
+# plot
+ggplot(predictions, aes(temp, rate)) +
+  geom_point(aes(temp, rate), d) +
+  geom_line(aes(temp, .fitted), col = 'blue') +
+  facet_grid(Species~model_name, labeller = labeller(model_name = label_facets_num), scales = 'free') +
+  theme_bw(base_size = 12) +
+  theme(legend.position = 'none',
+        strip.text = element_text(hjust = 0),
+        strip.background = element_blank()) +
+  labs(x = 'Temperature (ºC)',
+       y = 'Growth rate') +
+  geom_hline(aes(yintercept = 0), linetype = 2)
+```
+I like the way the Thomas1 model fits. There's no good reason for this except that I think it looks nice so that's the one that I will plot on my poster.
+
+```{r, plot, eval=FALSE}
+ggplot(Dil_growthrates.df,
+       aes(x=jitterTemp, y=mu, colour=Species)) +
+  geom_hline(yintercept = 0, colour="grey") +
+  scale_colour_manual(values=c("#9632B8","#EEA236","#357EBD")) +
+  # plot the thermal performance curve
+  geom_line(data=predictions %>% filter(model_name=="thomas1"),
+            aes(temp, .fitted), alpha=0.3, size=1) +
+  geom_point(alpha=0.6) +
+  geom_errorbar(aes(ymin=mu_lo_CI, ymax=mu_hi_CI),
+                width=0, alpha=0.6) +
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Growth Rate (", hr^{-1},")"))
+       )
+```
+
+
+# Growth curves: density-dependence of P.protegens at 40*C
+
+Let's make some plots of the raw data. P. protegens at stationary phase 40*C shows something interesting/unexpected. Let's also just plot the dilution series with the TTD line as an example.
+
+```{r, growthCurve_plots}
+
+ggplot(ALL_data.df %>% filter(Temp == 40, Dilution %in% c(0.1, 0.01),
+                              Inoculum == "Stationary", 
+                              Species %in% c("P. putida", "P. protegens", "P. veronii")),
+       aes(x=Time, y=baselinedOD, colour=Species, group=Species)) +
+  #facet_wrap(~ Dilution) +
+  scale_colour_manual(values=sp_palette[4:6]) +
+  #geom_point(alpha=0.01) +
+  #geom_line(aes(x=Time), stat="smooth", method="loess") +
+  scale_y_log10(limits=c(0.0001, 1.5)) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)",
+       title="Growth at 40*C for stationary inoculum")
+
+ggplot(ALL_data.df %>% filter(Temp == 40, Dilution %in% c(0.1, 0.01),
+                              Inoculum == "Exponential", 
+                              Species %in% c("P. putida", "P. protegens", "P. veronii")),
+       aes(x=Time, y=baselinedOD, colour=Species, group=Species)) +
+  #facet_wrap(~ Dilution) +
+  scale_colour_manual(values=sp_palette[4:6]) +
+  #geom_point(alpha=0.01) +
+  #geom_line(aes(x=Time), stat="smooth", method="loess") +
+  scale_y_log10(limits=c(0.0001, 1.5)) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)",
+       title="Growth at 40*C for exponential inoculum")
+
+dil_palette = brewer.pal(11, "Spectral")[seq(from=1, to=11, by=2)]
+ggplot(ALL_data.df %>% filter(Temp == 30, Inoculum == "Exponential",
+                              Sample == "BSC001", Time < 48),
+       aes(x=Time, y=baselinedOD, colour=Dilution, group=uniqID)) +
+  scale_colour_manual(values=dil_palette) +
+  geom_point(size=0.1) +
+  #geom_hline(yintercept = 0.05) +
+  scale_y_continuous(limits=c(0.001, 1.0)) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)",
+       title="P. putida exponential inoculum at 30*C")
+
+ggplot(ALL_data.df %>% filter(Temp == 30, Inoculum == "Exponential",
+                              Sample == "BSC001", Time < 13),
+       aes(x=Time, y=baselinedOD, colour=Dilution, group=uniqID)) +
+  scale_colour_manual(values=dil_palette) +
+  geom_point(size=0.6) +
+  scale_y_log10(limits=c(0.001, .6)) +
+  geom_hline(yintercept = 0.05) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)",
+       title="P. putida at 30*C on log scale with TTD")
+
+ggplot(ALL_data.df %>% filter(Temp == 30, Inoculum == "Exponential",
+                              Sample == "BSC001", Time < 13),
+       aes(x=Time, y=baselinedOD, colour=Dilution, group=uniqID)) +
+  scale_colour_manual(values=dil_palette) +
+  geom_line() +
+  scale_y_log10(limits=c(0.001, .6)) +
+  geom_hline(yintercept = 0.05) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)",
+       title="P. putida at 30*C on log scale with TTD")
+
+ggplot(growth_dilutions %>% filter(Inoculum=="Exponential", Sample == "BSC001", Temp==30),
+          aes(x=10^log10_surviving_N0, y=TTD_0.05)) +
+        geom_point(alpha=0.5) +
+        geom_smooth(method="lm", size=0.2) +
+        scale_x_log10() +
+        labs(title="P. putida exponential inoculum at 30*C", x="Inferred Inoculum Size of Dilution (CFU)",
+             y="Time to Detection (hrs)", colour="Temperature (*C)")
+
+ggplot(growth_dilutions %>% filter(Inoculum=="Exponential", Sample == "BSC001"),
+          aes(x=10^log10_surviving_N0, y=TTD_0.05, group=Temp, colour=as.factor(Temp))) +
+        geom_point(alpha=0.5) +
+        geom_smooth(method="lm", size=0.2) +
+        scale_x_log10() +
+        labs(title="P. putida exponential inoculum", x="Inferred Inoculum Size of Dilution (CFU)",
+             y="Time to Detection (hrs)", colour="Temperature (*C)")
+```
+
+
+Rstudio is having some issues so I put this text here maybe it will fix the problem?
+
+
+# Density dependence of growth rate at different temperatures
+
+20 November 2024: I am having trouble fitting the data from the main experiment because the dynamics seem to be more complex than I expected. Catalina suggested that Lotka Voltera is weird because it assumes a linear density dependence of *per capita* growth rate; for a lot of species, this is not the right relationship. Maybe I already have data that can be used to understand this better and see if LV makes sense for my data (or if it can be simplified somehow). Moreover, maybe we can get an empirical idea of how intrinsic growth rate and density dependence co-vary at different temperatures.
+
+For now, I am approximating $\frac{dN}{dt}$ by using $\Delta N = N_{t+1}-N_t$. It may be possible to make things look nicer by fitting a smoothed spline fit to the data and calculating the derivatives from that. The problem ([as cited here](https://stackoverflow.com/questions/11081069/calculate-the-derivative-of-a-data-function-in-r)) is that this tends to multiply any noise in the data. So I'm avoiding that as a first pass.
+
+Remember that the $\mu$ values estimated above are in units of $hr^{-1}$. Meanwhile, when we estimate $\Delta N$ by using subsequent time-steps that are 10 minutes apart, the instantaneous per capita growth rate estimate is in units of $0.6 hr^{-1}$. That's why all of the plots below display $0.6 \cdot \mu$When the $\mu$.
+
+```{r, get_density_dependence}
+# sort first by uniqID then by Time
+ALL_data.df <- ALL_data.df %>% arrange(uniqID, Time)
+# convert the single data.frame into a list of data.frames, each with 1 time series
+ALL_data.list <- split(ALL_data.df,
+                       f = ALL_data.df$uniqID)
+# a function to create a column for N_t+1
+Ntplus1_column <- function(df) {
+  df$OD_plus1 <- c(df$baselinedOD[2:nrow(df)], NA)
+  return(df)
+}
+# get N_t+1 for each of the uniqID's
+ALL_data.list <- lapply(ALL_data.list, Ntplus1_column)
+# put the data back into a single data.frame
+ALL_data.df <- bind_rows(ALL_data.list)
+rm(ALL_data.list, Ntplus1_column)
+
+# calculate \Delta N and its per capita value
+ALL_data.df <- ALL_data.df %>% mutate(DeltaN = OD_plus1 - baselinedOD) %>%
+                    mutate(DNperCapita = DeltaN / baselinedOD)
+
+# a function to plot per capita \Delta N (y-axis) against OD (x-axis)
+plot_percapita_DN <- function(sampleID, temperature,
+                              min_OD = 0.02,
+                              max_OD = 0.5) {
+  # let's get the estimated mu values
+  i <- which(Dil_growthrates.df$Temp==temperature & Dil_growthrates.df$Sample==sampleID)
+  mu_min <- 0.6 * min(c(Dil_growthrates.df$OD_mu_lo_CI[i], Dil_growthrates.df$OD_mu_hi_CI[i]), 
+                na.rm = TRUE)
+  mu_max <- 0.6 * max(c(Dil_growthrates.df$OD_mu_lo_CI[i], Dil_growthrates.df$OD_mu_hi_CI[i]), 
+                na.rm = TRUE)
+  # plot per capita \Delta N as points
+  out <- ggplot(ALL_data.df %>% filter(Sample == sampleID,
+                                       Temp == temperature) %>% #,
+                                      #Inoculum == "Stationary") %>%
+                      filter(baselinedOD > min_OD, baselinedOD < max_OD),
+                aes(x=baselinedOD,
+                    y=DNperCapita,
+                    colour=as.factor(Dilution))) +
+         # ribbon for the estimated mu values
+         geom_ribbon(aes(ymin=mu_min, ymax=mu_max),
+                     fill = "grey70", colour = NA) +
+         geom_point(alpha=0.2) +
+         geom_line(stat="smooth") +
+         labs(title=paste0(sampleID, " at ", temperature, "C: ",
+                           min_OD, " < OD < ", max_OD),
+              y="per capita Delta N",
+              colour="Dilution\n    of\nInoculum") +
+        # vertical line indicates TTD
+         geom_vline(xintercept = 0.05, linetype="dashed")
+  return(out)
+}
+
+# plot an example
+ggplot(ALL_data.df %>% filter(uniqID == "E3 1 2023-11-20 Stationary"),
+       aes(x=baselinedOD, y=DNperCapita)) +
+  geom_point() +
+  labs(title="all N values",
+       y="per capita Delta N")
+
+ggplot(ALL_data.df %>% filter(Sample == "BSC001",
+                              Temp == 30) %>% #,
+                              #Inoculum == "Stationary") %>%
+         filter(baselinedOD > 0.02,
+                baselinedOD < 0.5),
+       aes(x=baselinedOD, y=DNperCapita, colour=as.factor(Dilution))) +
+  geom_point(alpha=0.2) +
+  labs(title="BSC001 30C: 0.02 < OD < 0.5",
+       y="per capita Delta N") +
+  geom_vline(xintercept = 0.05, linetype="dashed") + # vertical line indicates TTD
+  geom_hline(yintercept = 0.6 * Dil_growthrates.df$OD_mu[which(Dil_growthrates.df$Temp==30 & Dil_growthrates.df$Sample=="BSC001")],
+             linetype="dashed")
+
+for (genotypes in unique(ALL_data.df$Sample)) {
+  for (tempC in unique(ALL_data.df$Temp)) {
+    plot(plot_percapita_DN(sampleID=genotypes, temperature=tempC))
+  }
+}
+
+
+ggplot(ALL_data.df %>% filter(Sample == "BSC001",
+                              Temp == 40) %>% #,
+                              #Inoculum == "Stationary") %>%
+         filter(baselinedOD > 0.005,
+                baselinedOD < 0.5),
+       aes(x=baselinedOD, y=DNperCapita, colour=as.factor(Dilution))) +
+  geom_point(alpha=0.2) +
+  labs(title="BSC001 40C: 0.005 < OD < 0.5",
+       y="per capita Delta N") +
+  scale_y_continuous(limits = c(-0.1, 0.25)) +
+  geom_line(stat="smooth") +
+  geom_vline(xintercept = 0.05, linetype="dashed") # vertical line indicates TTD
+
+# I would like to fit the Lotka-Voltera assumed \mu - \alpha_ii*N line to the data. But in order to do that, we need to rationally decide where the cut-off will be on the x-axes
+# Let's see how the mean value of DeltaN changes over time for each sample & temperature
+test <- ALL_data.df %>% group_by(Sample, Temp, Time) %>%
+          summarise(mean_DNperCapita = mean(DNperCapita))
+
+ggplot(test,
+       aes(x=Time, y=mean_DNperCapita, colour=as.factor(Temp))) +
+  geom_point(alpha=0.2)
+
+ggplot(test %>% filter(mean_DNperCapita < 1e+7, mean_DNperCapita > -1e+7),
+       aes(x=Time, y=mean_DNperCapita, colour=as.factor(Temp))) +
+  geom_point(alpha=0.2) +
+  labs(title="remove ridiculously large & small DNpercapita values")
+
+ggplot(test %>% filter(mean_DNperCapita < 1e+7, mean_DNperCapita > -1e+7),
+       aes(x=Time, y=mean_DNperCapita, colour=as.factor(Temp))) +
+  geom_point(alpha=0.2) +
+  scale_y_log10() +
+  labs(title="remove ridiculously large & small DNpercapita values")
+
+rm(test)
+```
+
+There's too much noise in this shoddy derivatives data even to be able to get a first approximation of how the density dependence changes with temperature. (e.g., if we average the $\frac{\Delta N}{N}$ across all replicates for any one Sample + Temperature + Time, then we get values between -Inf to +Inf. Even after we exclude some of these ridiculous values, there's still a lot of noise and mean growth rate can be as high as 0.05 even after 50 hours...). We need a better way of de-noising the data before we calculate the derivative: use `gcplyr`.
+
+```{r, load_into_gcplyr}
+# redo the baselining to conform with the input for calc_deriv
+tmp_blank <- ALL_data.df %>% ungroup() %>% group_by(uniqID) %>% summarise(blank = mean(medianBlankOD))
+
+# smooth the data by taking the median then the average
+# see https://mikeblazanin.github.io/gcplyr/articles/gc07_noise.html#combining-multiple-smoothing-methods
+smoothed <- ALL_data.df %>% ungroup() %>%
+              mutate(smooth_med3 = smooth_data(x = Time,
+                                               y = OD,
+                                               subset_by = uniqID,
+                                               sm_method = "moving-median",
+                                               window_width_n = 3),
+                     smoothOD = smooth_data(x = Time,
+                                            y = smooth_med3,
+                                            subset_by = uniqID,
+                                            sm_method = "moving-average",
+                                            window_width_n = 3),
+                     percap_deriv = calc_deriv(y = smoothOD,
+                                               x = Time,
+                                               subset_by = uniqID,
+                                               percapita = TRUE,
+                                               blank = tmp_blank$blank,
+                                               window_width_n = 5))
+# check to make sure the smoothing and derivative calculation worked to make the data less terrible:
+ggplot(smoothed,
+       aes(x=Time, y=percap_deriv, colour=as.factor(Temp))) +
+  geom_point(alpha=0.2)
+
+
+# plot the same example as above
+ggplot(smoothed %>% filter(uniqID == "E3 1 2023-11-20 Stationary"),
+       aes(x=baselinedOD, y=percap_deriv)) +
+  geom_point() +
+  labs(title="all N values (for same ex. as above)",
+       y="per capita derivative")
+
+# plot a summary of all the data
+for(sam in unique(smoothed$Sample)){
+  print(ggplot(smoothed %>% filter(Sample == sam) %>%
+                  filter(baselinedOD > 0.02, # remove small OD values
+                         percap_deriv > -0.1), # and any large negative derivative estimates
+               aes(x=baselinedOD,
+                   y=percap_deriv,
+                   colour=as.factor(Temp))) +
+        geom_point(alpha=0.03) +
+        geom_smooth(method="loess") +
+        labs(title=paste0(sam,": OD > 0.02 (loess smooth)"),
+             y="per capita derivative",
+             colour="*C"))
+}
+
+rm(tmp_blank, sam)
+```
+
+There seems to be a lot of information in this derivative plot. For example: see how all *P. protegens* samples accelerate their growth at intermediate densities before slowing down.
+
+But we're not interested in these details. We want a first order approximation for how the relationship between population size and per capita growth rate **changes as a function of temperature.** So we are going to stick with this simple linear relationship, where $\alpha_{ii}$ is the slope, and we will see how this changes as a function of temperature. To do this, I will fit a 1st degree spline with just 1 knot to all replicates for one species at one temperature. 
+
+```{r, spline}
+# select samples & temperatures with consistent growth as evidenced by estimates for OD_mu
+  # e.g., exclude most samples at 40*C
+consistent_growth.df <- Dil_growthrates.df %>%
+                          select(Sample, Temp, Inoculum, OD_mu) %>%
+                            filter(!is.na(OD_mu)) %>%
+                              select(-OD_mu) %>% distinct()
+
+# initialize variable for storage
+fitted_splines <- vector("list", length = nrow(consistent_growth.df))
+
+# the possible locations for the spline knots
+knot_spots <- seq(0.16, 0.5, by=0.005)
+
+# loop through all the samples and temperatures
+for(i in 1:nrow(consistent_growth.df)){
+  # get the sample & temperature
+  sam <- consistent_growth.df$Sample[i]
+  deg <- consistent_growth.df$Temp[i]
+  innoc <- consistent_growth.df$Inoculum[i]
+  
+  # fit the 1st degree piecewise polynomial with just 1 knot. Do this for all possible knot locations
+  tryspline <- try(with(smoothed %>% filter(Sample == sam,
+                                            Temp == deg,
+                                            Inoculum == innoc,
+                                            baselinedOD > 0.02,
+                                            percap_deriv > -0.1),
+                        lapply(knot_spots,
+                               function(x) lm(percap_deriv ~ bs(baselinedOD, knots=c(x), degree=1))) ),
+                   silent = TRUE)
+  # error handling: note down models which could not be fitted
+  if (class(tryspline) == "try-error") {
+    fitted_splines[[i]] <- list(sam, deg, rep(NA, 4), tryspline[1])
+  # error handling: when models could be fitted, save just the best one
+  } else if (class(tryspline) == "list"){
+    # use lowest BIC to decide which model is the best fit
+    best_BIC <- sapply(tryspline, BIC)
+    best_i <- which.min(best_BIC)
+    
+    # get the model predictions for visualization
+    spline_pred <- data.frame(baselinedOD = seq(0.021, 0.8, length.out=30)) %>%
+                     mutate(predicted = predict(tryspline[[best_i]], data.frame(baselinedOD)))
+    # plot the predictions on top of the data
+    print(ggplot(smoothed %>% filter(Sample == sam,
+                                     Temp == deg,
+                                     Inoculum == innoc,
+                                     baselinedOD > 0.02,
+                                     percap_deriv > -0.1),
+                 aes(x=baselinedOD, y=percap_deriv, colour=as.factor(Dilution))) +
+          # plot the data as points
+          geom_point(alpha=0.2) +
+          # plot the predictions as a solid line
+          geom_line(data=spline_pred,
+                    aes(x=baselinedOD, y=predicted), colour="black") +
+          labs(title=paste0(sam," ", deg, "*C: OD > 0.02"),
+               y="per capita derivative") +
+          # plot intrinsic growth rate estimates from the TTD as dashed lines
+          geom_hline(yintercept = Dil_growthrates.df$OD_mu[which(Dil_growthrates.df$Temp==deg & Dil_growthrates.df$Sample==sam)],
+                     linetype="dashed"))
+    
+    # fit the linear model to just the portion of the data estimated by the spline fit
+    trimmed_data <- smoothed %>% filter(Sample == sam,
+                                        Temp == deg,
+                                        Inoculum == innoc,
+                                        baselinedOD > 0.02,
+                                        # remove spurious estimates
+                                        percap_deriv > -0.1,
+                                        # keep values smaller than knot
+                                        baselinedOD < knot_spots[best_i])
+    line <- with(trimmed_data, 
+                 lm(percap_deriv ~ baselinedOD))
+    
+    # finally summarize the carrying capacity as the median & IQR when per capita deriv is at 0
+    K <- smoothed %>% filter(Sample == sam,
+                             Temp == deg,
+                             Inoculum == innoc,
+                             # keep values LARGER than knot
+                             baselinedOD > knot_spots[best_i]) %>%
+            select(baselinedOD) %>% unlist() %>% quantile(probs = c(0.5, 0.25, 0.75))
+    
+    # save the trimmed data, the linear model, its coefficients, and their confidence intervals to the storage variable
+    fitted_splines[[i]] <- list(Sample = sam, Temp = deg, Inoculum = innoc,
+                                trimOD = knot_spots[best_i],
+                                coef_LM = coef(line), CI_LM = confint(line),
+                                model_LM = line, model_spline = tryspline[[best_i]],
+                                data = trimmed_data, K = K)
+  }
+  
+
+  # cleanup
+  rm(sam, deg, innoc, tryspline, best_i, best_BIC, spline_pred, line, trimmed_data, K)
+}
+
+# plot the data in the range relevant for the aii estimates
+ggplot(smoothed %>% filter(baselinedOD > 0.02, # minimum baselined OD value
+                           # maximum baselined OD value
+                           baselinedOD < max(sapply(fitted_splines, function(x) x[[3]])),
+                           percap_deriv > 0,
+                           percap_deriv < 2.5),
+       aes(x=baselinedOD,
+           y=percap_deriv)) +
+  facet_wrap(vars(Temp)) +
+  geom_point(alpha=0.03, aes(colour=Species)) +
+  geom_smooth(method="lm", colour="black", se=FALSE) +
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  labs(y="per capita derivative",
+       title="supralinear growth?")
+
+# summarize just the slope values and fix the format 
+aii <- sapply(fitted_splines, function(x) c(x$Sample, # sample
+                                            x$Inoculum, 
+                                            x$Temp, # temperature
+                                            x$coef_LM, # intercept & slope
+                                            x$CI_LM[1,], # 95% CI on intercept
+                                            x$CI_LM[2,])) # 95% CI on slope
+aii <- data.frame(t(aii))
+colnames(aii) <- c("Sample", "Inoculum", "Temp", "Intercept", "Slope", "Intercept_CIlo", "Intercept_CIhi", "Slope_CIlo", "Slope_CIhi")
+aii[,c(-1, -2)] <- sapply(aii[,c(-1, -2)], as.numeric) # change all but the first 2 columns into numeric
+aii <- inner_join(aii,
+                  Dil_growthrates.df %>% select(Sample, Species, Inoculum) %>% distinct())
+
+# I want to add a line to indicate the temperature optimum
+# For now, estimate the temperature optimum by directly looking at max of OD_mu
+Tmax <- Dil_growthrates.df %>% group_by(Inoculum, Sample) %>%
+           summarise(max_mu = max(OD_mu, na.rm=TRUE))
+Tmax <- Dil_growthrates.df[which(Dil_growthrates.df$OD_mu %in% Tmax$max_mu),] %>%
+           group_by(Species) %>%
+              summarise(Tmax = mean(Temp))
+
+# plot to see the effect on the slope
+ggplot(aii %>% inner_join(Tmax),
+       aes(x=Temp, y=Slope, colour=Sample)) +
+  facet_wrap(vars(Species)) +
+  geom_vline(aes(xintercept=Tmax), colour="lightgrey") +
+  geom_jitter(width=0.1, alpha=0.3) +
+  geom_errorbar(aes(ymin=Slope_CIlo, ymax=Slope_CIhi), width=0.1, alpha=0.5) +
+  theme(legend.position="none") +
+  labs(x="Temperature (*C)", y="a_ii estimate (+/- 95% CI)",
+       title="line shows empirical temperature optimum")
+
+# let's check for significance using emmeans (yes, I'm a fan of emmeans now that I know how to do it XD )
+  # create a data.frame with the trimmed data
+spline_trimmmed_data <- lapply(fitted_splines, function(x) x$data) %>% bind_rows()
+  # make a column to indicate if the incubated temperature is lower, higher or equal to Tmax
+spline_trimmmed_data <- inner_join(spline_trimmmed_data, Tmax) %>%
+                          rename(empirical_thermal_optimum = Tmax) %>% 
+                            mutate(compare_to_Tmax = ifelse(Temp == empirical_thermal_optimum,
+                                                            "equal",
+                                                            ifelse(Temp < empirical_thermal_optimum, "lower", "higher")))
+ # adjust the explanatory variables so that it's as expected by emmeans
+spline_trimmmed_data$compare_to_Tmax <- factor(spline_trimmmed_data$compare_to_Tmax,
+                                               levels = c("lower", "higher", "equal"))
+# compare some models
+aheat_model0 <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax,
+                        data = spline_trimmmed_data)
+aheat_model1 <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + Species,
+                        data = spline_trimmmed_data)
+aheat_model1m <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + (1 | Species),
+                         data = spline_trimmmed_data)
+aheat_model2 <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + Species + Dilution,
+                        data = spline_trimmmed_data)
+aheat_model2m <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + (1 | Species + Dilution),
+                         data = spline_trimmmed_data)
+aheat_model3 <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + Species*Inoculum,
+                        data = spline_trimmmed_data)
+aheat_model3m <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + (1 | Species*Inoculum),
+                         data = spline_trimmmed_data)
+aheat_model4 <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + Species*Dilution*Inoculum,
+                        data = spline_trimmmed_data)
+aheat_model4m <- glmmTMB(percap_deriv ~ baselinedOD*compare_to_Tmax + (1 | Species*Dilution*Inoculum),
+                         data = spline_trimmmed_data)
+# this model doesn't converge
+#aheat_model5m <- glmmTMB(percap_deriv ~ (baselinedOD*compare_to_Tmax | Species) + (1 | Dilution*Inoculum),
+#                         data = spline_trimmmed_data)
+AIC(aheat_model0, aheat_model1, aheat_model1m, aheat_model2, aheat_model2m,
+    aheat_model3, aheat_model3m, aheat_model4, aheat_model4m) %>% arrange(AIC)
+BIC(aheat_model0, aheat_model1, aheat_model1m, aheat_model2, aheat_model2m,
+    aheat_model3, aheat_model3m, aheat_model4, aheat_model4m) %>% arrange(BIC)
+
+# let's use model aheat_model4m
+summary(aheat_model4m)
+# we can check the significance of the fixed effects:
+joint_tests(aheat_model4m)
+
+# clean up the models we won't be using anymore
+rm(aheat_model0, aheat_model1, aheat_model1m, aheat_model2, aheat_model2m, aheat_model3, aheat_model3m, aheat_model4)
+
+# get the effect size
+emm_aheat <- emmeans(aheat_model4m,
+                     ~ compare_to_Tmax | baselinedOD,
+                     data = spline_trimmmed_data)
+effect_aheat <- eff_size(emm_aheat, sigma(aheat_model4m), edf = df.residual(aheat_model4m))
+# posthoc to get the p-values
+pvals <- emmeans(emm_aheat, pairwise ~ compare_to_Tmax | baselinedOD)
+print(pvals)
+
+# finally, we can report the improvement in fit that is attributable to compare_to_Tmax by comparing R^2 with a simpler model
+aheat_REDUCEDmodel <- glmmTMB(percap_deriv ~ baselinedOD + (1 | Species*Dilution*Inoculum),
+                              data = spline_trimmmed_data)
+## IT'S NOT POSSIBLE TO FIT THE REDUCED MODEL CUZ IT WON'T CONVERGE!!
+## This can probably be trouble-shooted but it's not that important for me...
+
+# clean up
+rm(aheat_REDUCEDmodel)
+
+# extract the confidence intervals from the effect size
+heat_effect <- data.frame(contrast = c("lower than Tmax", "higher than Tmax"),
+                          eff_est = confint(effect_aheat)[[3]][-1],
+                          eff_loCI = confint(effect_aheat)[[6]][-1],
+                          eff_hiCI = confint(effect_aheat)[[7]][-1])
+heat_effect$contrast <- factor(heat_effect$contrast,
+                               levels = c("lower than Tmax", "higher than Tmax"))
+ggplot(heat_effect,
+       aes(x = eff_est, y = contrast)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point() +
+  geom_errorbarh(aes(xmin = eff_loCI, xmax = eff_hiCI), height = 0.1) +
+  labs(x = "Effect size on a_ii estimate",
+       y = "Incubated temperature")
+print(pvals)
+
+# finally, let's plot the a_ii proxy against mu estimated from TTD and also against carrying capacity
+growth_traits.df <- full_join(Dil_growthrates.df %>%
+                                 select(Sample, Temp, Species, Inoculum,
+                                        OD_mu, OD_mu_lo_CI, OD_mu_hi_CI) %>%
+                                   rename(mu_TTDcalibrated = OD_mu,
+                                          mu_loCI = OD_mu_lo_CI,
+                                          mu_hiCI = OD_mu_hi_CI),
+                              aii %>%
+                                 select(Sample, Temp, Species, Inoculum,
+                                        Slope, Slope_CIlo, Slope_CIhi) %>%
+                                   rename(aii_mean = Slope,
+                                          aii_loCI = Slope_CIlo,
+                                          aii_hiCI = Slope_CIhi),
+                               by = c("Sample", "Temp", "Species", "Inoculum"))
+# coerce the carrying capacity from the fitted_splines list into a data.frame
+carrying_cap <- sapply(fitted_splines, function(x) c(x$Sample, x$Inoculum, x$Temp, x$K))
+carrying_cap <- data.frame(t(carrying_cap))
+colnames(carrying_cap) <- c("Sample", "Inoculum", "Temp", "K_median", "K_loIQR", "K_hiIQR")
+carrying_cap[,c(-1, -2)] <- sapply(carrying_cap[,c(-1, -2)], as.numeric) # change all but the first 2 columns into numeric
+# combine the K data with the rest of the growth traits
+growth_traits.df <- full_join(growth_traits.df,
+                              carrying_cap,
+                              by = c("Sample", "Temp", "Inoculum"))
+
+# plot mu versus alpha_ii
+ggplot(growth_traits.df,
+       aes(x = mu_TTDcalibrated, y = aii_mean, colour = Species)) +
+  facet_wrap(vars(Temp)) +
+  geom_point(alpha = 0.4)
+
+ggplot(growth_traits.df,
+       aes(x = mu_TTDcalibrated, y = aii_mean, colour = Species)) +
+  facet_wrap(vars(Temp)) +
+  geom_linerange(aes(ymin = aii_loCI, ymax = aii_hiCI), alpha=0.4) +
+  geom_errorbarh(aes(xmin = mu_loCI, xmax = mu_hiCI), height=0, alpha=0.4) +
+  geom_point(alpha = 0.4)
+
+# check for a correlation between \mu and \a_ii
+aii_vs_mu_model <- glmmTMB(aii_mean ~ mu_TTDcalibrated + as.factor(Temp) + (1 | Species),
+                           data = growth_traits.df)
+aii_vs_mu_model2 <- glmmTMB(aii_mean ~ mu_TTDcalibrated + (1 | Species * Temp),
+                           data = growth_traits.df)
+aii_vs_mu_model3 <- glmmTMB(aii_mean ~ mu_TTDcalibrated*Species + (1 | Temp),
+                           data = growth_traits.df)
+aii_vs_mu_model4 <- glmmTMB(aii_mean ~ mu_TTDcalibrated*as.factor(Temp) + (1 | Species),
+                           data = growth_traits.df)
+# check which is best one
+AIC(aii_vs_mu_model, aii_vs_mu_model2, aii_vs_mu_model3, aii_vs_mu_model4) %>% arrange(AIC)
+BIC(aii_vs_mu_model, aii_vs_mu_model2, aii_vs_mu_model3, aii_vs_mu_model4) %>% arrange(BIC)
+# cleanup
+rm(aii_vs_mu_model2, aii_vs_mu_model3, aii_vs_mu_model4)
+
+# this is the best model
+summary(aii_vs_mu_model)
+# we can check for significance of the fixed effects:
+joint_tests(aii_vs_mu_model)
+
+# finally, we can report the improvement in fit that is attributable to mu by comparing R^2 with a simpler model
+aii_vs_mu_REDUCEDmodel <- glmmTMB(aii_mean ~ as.factor(Temp) + (1 | Species),
+                                  data = growth_traits.df)
+AIC(aii_vs_mu_REDUCEDmodel, aii_vs_mu_model) %>% arrange(AIC)
+BIC(aii_vs_mu_REDUCEDmodel, aii_vs_mu_model) %>% arrange(BIC)
+# Calculate R-squared values
+full_r2 <- r2_nakagawa(aii_vs_mu_model)
+reduced_r2 <- r2_nakagawa(aii_vs_mu_REDUCEDmodel)
+# Calculate the explained variance by x
+expl_var_aiiVSmu <- full_r2$R2_conditional - reduced_r2$R2_conditional
+print(paste0("mu is a significant & preferred explanatory variable, although it only explains ", round(100*expl_var_aiiVSmu, digits=1), "% of the variance"))
+# clean up
+rm(aii_vs_mu_REDUCEDmodel, full_r2, reduced_r2)
+
+# plot K versus alpha_ii
+ggplot(growth_traits.df,
+       aes(x = K_median, y = aii_mean, colour = Species)) +
+  facet_wrap(vars(Temp)) +
+  geom_point(alpha = 0.4)
+
+ggplot(growth_traits.df,
+       aes(x = K_median, y = aii_mean, colour = Species)) +
+  facet_wrap(vars(Temp)) +
+  geom_linerange(aes(ymin = aii_loCI, ymax = aii_hiCI), alpha=0.4) +
+  geom_errorbarh(aes(xmin = K_loIQR, xmax = K_hiIQR), height=0, alpha=0.4) +
+  geom_point(alpha = 0.4)
+
+# check for a correlation between K and \a_ii
+aii_vs_K_model <- glmmTMB(aii_mean ~ K_median + as.factor(Temp) + (1 | Species),
+                          data = growth_traits.df)
+aii_vs_K_model2 <- glmmTMB(aii_mean ~ K_median + (1 | Species * Temp),
+                           data = growth_traits.df)
+aii_vs_K_model3 <- glmmTMB(aii_mean ~ K_median*Species + (1 | Temp),
+                           data = growth_traits.df)
+aii_vs_K_model4 <- glmmTMB(aii_mean ~ K_median*as.factor(Temp) + (1 | Species),
+                           data = growth_traits.df)
+# check which is best one
+AIC(aii_vs_K_model, aii_vs_K_model2, aii_vs_K_model3, aii_vs_K_model4) %>% arrange(AIC)
+BIC(aii_vs_K_model, aii_vs_K_model2, aii_vs_K_model3, aii_vs_K_model4) %>% arrange(BIC)
+
+# cleanup
+rm(aii_vs_K_model, aii_vs_K_model3, aii_vs_K_model4)
+
+# this is the best model
+summary(aii_vs_K_model2)
+# we can check for significance of the fixed effects:
+joint_tests(aii_vs_K_model2) # note that K is *not* significant
+
+# finally, we can report the improvement in fit that is attributable to mu by comparing R^2 with a simpler model
+aii_vs_K_REDUCEDmodel <- glmmTMB(aii_mean ~ (1 | Species * Temp),
+                                 data = growth_traits.df)
+AIC(aii_vs_K_model2, aii_vs_K_REDUCEDmodel) %>% arrange(AIC)
+BIC(aii_vs_K_model2, aii_vs_K_REDUCEDmodel) %>% arrange(BIC)
+# these AIC & BIC values are suuuper similar. Let's check if the models are different:
+anova(aii_vs_K_REDUCEDmodel, aii_vs_K_model2)
+# Calculate R-squared values
+full_r2 <- r2_nakagawa(aii_vs_K_model2)
+reduced_r2 <- r2_nakagawa(aii_vs_K_REDUCEDmodel)
+# Calculate the explained variance by x
+expl_var_aiiVSK <- abs(full_r2$R2_conditional - reduced_r2$R2_conditional)
+print(paste0("K is not significant. It only explains ", round(100*expl_var_aiiVSK, digits=1), "% of the variance in a_ii."))
+# clean up
+rm(aii_vs_K_REDUCEDmodel, full_r2, reduced_r2)
+
+
+# plot mu versus K (for completeness)
+ggplot(growth_traits.df,
+       aes(x = mu_TTDcalibrated, y = K_median, colour = Species)) +
+  facet_wrap(vars(Temp)) +
+  geom_point(alpha = 0.4)
+
+ggplot(growth_traits.df,
+       aes(x = mu_TTDcalibrated, y = K_median, colour = Species)) +
+  facet_wrap(vars(Temp)) +
+  geom_linerange(aes(ymin = K_loIQR, ymax = K_hiIQR), alpha=0.4) +
+  geom_errorbarh(aes(xmin = mu_loCI, xmax = mu_hiCI), height=0, alpha=0.4) +
+  geom_point(alpha = 0.4)
+
+# check for a correlation between K and \a_ii
+mu_vs_K_model <- glmmTMB(mu_TTDcalibrated ~ K_median + as.factor(Temp) + (1 | Species),
+                         data = growth_traits.df)
+mu_vs_K_model2 <- glmmTMB(mu_TTDcalibrated ~ K_median + (1 | Species * Temp),
+                          data = growth_traits.df)
+mu_vs_K_model3 <- glmmTMB(mu_TTDcalibrated ~ K_median*Species + (1 | Temp),
+                          data = growth_traits.df)
+mu_vs_K_model4 <- glmmTMB(mu_TTDcalibrated ~ K_median*as.factor(Temp) + (1 | Species),
+                          data = growth_traits.df)
+# check which is best one
+AIC(mu_vs_K_model, mu_vs_K_model2, mu_vs_K_model3, mu_vs_K_model4) %>% arrange(AIC)
+BIC(mu_vs_K_model, mu_vs_K_model2, mu_vs_K_model3, mu_vs_K_model4) %>% arrange(BIC)
+
+# cleanup
+rm(mu_vs_K_model, mu_vs_K_model3, mu_vs_K_model4)
+
+# this is the best model
+summary(mu_vs_K_model2)
+# we can check for significance of the fixed effects:
+joint_tests(mu_vs_K_model2) # note that K is *not* significant
+
+# finally, we can report the improvement in fit that is attributable to mu by comparing R^2 with a simpler model
+mu_vs_K_REDUCEDmodel <- glmmTMB(mu_TTDcalibrated ~ (1 | Species * Temp),
+                                data = growth_traits.df)
+AIC(mu_vs_K_model2, mu_vs_K_REDUCEDmodel) %>% arrange(AIC)
+BIC(mu_vs_K_model2, mu_vs_K_REDUCEDmodel) %>% arrange(BIC)
+# these AIC & BIC values are suuuper similar. Let's check if the models are different:
+anova(mu_vs_K_REDUCEDmodel, mu_vs_K_model2)
+print("aii and K are not significantly correlated.")
+
+# clean up
+rm(aii_vs_K_REDUCEDmodel)
+```
+
+There is a significant interaction between the $\alpha_{ii}$ and the thermal "optimum" (here defined as the temperature with the largest observed $\mu$ as estimated from the TTD data). It seems that $\alpha_{ii}$ is strongest at the thermal optimum and lower for temperature both below and above the optimum. 
+
+Finally, $\alpha_{ii}$ is negatively correlated with the growth rate but not the carrying capacity. (Growth rate and carrying capacity are uncorrelated, which is reassuring.)
+
+(just for satisfying my curiosity, it might be nice to compare the TTD vs \mu_max growth rate estimates...)
