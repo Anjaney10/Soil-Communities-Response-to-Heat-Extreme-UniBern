@@ -44,8 +44,12 @@ library(readxl) # for importing data directly from Excel sheet
 library(broom) # for easy fitting of several lm's from the same df
 library(Hmisc) # for calculating non-parametric bootstrap confidence intervals
 library(AICcmodavg) # AIC comparison for survival CFU data
-library("CarletonStats") # for bootstrapping the slope of linear regression
-library(DescTools) # for Kendall's Coefficient of Concordance (W)
+library(gcplyr) # for smooth plotting of growth curve data & for plotting intraspecific density dependence of growth rate
+library(CarletonStats) # for bootstrapping the slope of linear regression
+library(DescTools) # for Kendall's Coefficient of Concordance (Wt)
+library(glmmTMB) # for linear mixed effects model
+library(emmeans) # for summarizing effects of LMM models
+library(rcompanion) # for r-squared estimates of LMM models
 
 # this is a set of custom functions written by AHG:
 source("H1_extract_data_fun_v3-1.R") # for getting the data into R from the default H1 txt export format
@@ -484,6 +488,26 @@ ggplot(CFU_survival.df %>% filter(Inoculum == "Exponential"),
         #axis.title.y = element_text(size = 12),
         axis.text.x=element_blank())
 
+# high quality figure for manuscript main text
+png(filename="Fig2_B.png", width = 4.63, height = 4.4, units = "in", res=300)
+ggplot(CFU_survival.df %>% filter(Inoculum == "Exponential"),
+       aes(y=mean_surviv, x=Species, colour=Species)) +
+  facet_wrap(. ~ temp_as_factor,
+             labeller = as_labeller(c(thirtyfive='35\u00b0C',
+                                      forty='40\u00b0C'))) +
+  geom_hline(yintercept = 1, colour="grey") +
+  geom_point(position = position_dodge2(width = 1), alpha=0.5, shape=plot.CFU_survivalEXP$Shape, size=3) +
+  geom_linerange(aes(ymin=lwr_ci, ymax=upr_ci), position = position_dodge2(width = 1)) +
+  scale_colour_manual(values=ALLsp_palette) +
+  theme(axis.text.x=element_text(angle = 60, hjust = 0.95)) +
+  labs(y="Heat Growth ± 95% CI (heat CFU / 28\u00b0C CFU)") +
+  theme(strip.background = element_rect(fill = "white", colour="black"),
+        strip.text = element_text(color = "black"),
+        #axis.title.y = element_text(size = 12),
+        axis.text.x=element_blank(),
+        legend.position = "none")
+dev.off()
+      
 print("stationary phase plot below:")
 # plot the stationary phase data with Temp as columns
 ggplot(CFU_survival.df %>% filter(Inoculum == "Stationary"),
@@ -522,7 +546,8 @@ Load the data using the function `get_ODdata_block` defined in "H1_extract_data_
 *Exclusion of contaminated wells:* make sure that you exclude any contaminated wells from the data BEFORE exporting to text file. You will have to do this by noting which wells have unexpected fluorescence emission via fluorescent scanning of the plate with the BioTek H1 Synergy multimodal plate reader at the end of the growth curve.
 
 
-```{r, growthcurves_loadData, warning=FALSE, eval=FALSE}
+```{r, growthcurves_loadData, warning=FALSE}
+#, eval=FALSE}
 
 # this function runs with some warnings. Hermina looked over the resultant data.frame and it seems fine. Will fix this if they find some time...
 
@@ -610,7 +635,8 @@ ST6raw_data.df <- get_ODdata_block(blockID = "2023-11-24",
 Annotate the data using the function `annotate_data` defined in "H1_extract_data_fun_v3-1.R". The option `layout = "12columns"` assumes the data is composed of 12 samples laid out over columns 1-12 and rows B-G are assumed to be a dilution series from $10^{-1}$ to $10^{-6}$ (rows A & H are assumed to be blank).
 
 
-```{r, growthcurves_annotateData, warning=FALSE, eval=FALSE}
+```{r, growthcurves_annotateData, warning=FALSE}
+#, eval=FALSE}
 
 # define vectors for each of the 3 layouts
 layout1 = c("Pseudomonas putida KT2440 - mScarlet","Pseudomonas putida uwc 2 - BFP","Pseudomonas putida F1 - sYFP","Pseudomonas veronii - mScarlet","Pseudomonas knackmussii B14 - GFP","Pseudomonas plecoglossicida - NA","Pseudomonas veronii - mCherry","Pseudomonas putida mt-2 KT2440 - NA","Pseudomonas veronii - BFP","Pseudomonas knackmussii B13 - mCherry","Pseudomonas putida KT2440 - GFP","Pseudomonas grimontii - NA")
@@ -679,7 +705,8 @@ rm(EX1raw_data.df, EX2raw_data.df, EX3raw_data.df, EX4raw_data.df, EX5raw_data.d
 
 The P. protegens data was acquired by Hermina in Spring 2024, after Anjaney left. Load that data now:
 
-```{r, growthcurves_LoadProtegens, warning=FALSE, eval=FALSE}
+```{r, growthcurves_LoadProtegens, warning=FALSE}
+#, eval=FALSE}
 
 # load the data as separate data.frames
 PpEXP1raw_data.df <- get_ODdata_block(blockID = "2024-03-13",
@@ -754,7 +781,8 @@ Do the baseline subtraction to get the OD values: baseline subtract using the me
 
 Then let's plot the baseline subtracted data OD for all culture phases, samples, and temperatures. The colours show growth curves with different dilutions, from $10^{-1}$ to $10^{-6}$ (note that these come from different batches, i.e., that were grown on different days). The black horizontal line shows the detection threshold (baselined OD = 0.05) that is used for the TTD analysis below.
 
-```{r, growthcurves_baseline, eval=FALSE}
+```{r, growthcurves_baseline}
+#, eval=FALSE}
 # baseline subtract using the median OD value of the blanks for each time point, for each plate
   # create a data.frame containing only the blank samples for all plates
 data.blanks <- ALLraw_data.df %>% filter(Sample=="BLK")
@@ -801,13 +829,16 @@ for(phase in unique(ALL_data.df$Inoculum)){
 rm(data.blanks, medianOD, plot, temp_data_for_plotting, phase, smpls, temps)
 ```
 
+Okay, now that that's sorted, we can proceed with the analysis...
+
 Improve on the annotation of the Samples to create dedicated columns for species, strain, and fluorescence and also to add the sample ID in the TERR collection.
 
 Then, let's see how many data points we have for all samples and treatments...
 
 Note that due to some error with the plate reader, the 3rd replicate of 35*C (in block 2023-11-10) was corrupted so we're missing those data points :(
 
-```{r, growthcurves_data_completeness, eval=FALSE}
+```{r, growthcurves_data_completeness}
+#, eval=FALSE}
 # parse the details stored in the Sample column into dedicated columns...
 ALL_data.df$temp_Sample <- as.character(ALL_data.df$Sample)
 # separate the species, strain, and fluorophore information from the unique sample names
@@ -866,7 +897,8 @@ See from the data plots above (and Anjaney's presentation) that a baselined OD v
 
 We will use kernel smoothing to get a more fine-grained approximation for the TTD and find the exact time when the threshold is passed (i.e., as compared to Anjaney's presentation, where he got a coarse-grained estimate of the TTD by finding the first sampled time point when baselined OD > 0.05).
 
-```{r, growthcurves_TTD_calculation, eval=FALSE}
+```{r, growthcurves_TTD_calculation}
+#, eval=FALSE}
 # set the cut-off to 0.05 because this is the value that Anjaney found where all growth curves are still in the "log-linear" phase.
 TTDcutoff.low <- 0.05
 
@@ -1221,7 +1253,7 @@ ggplot(temp.low_rsq,
 # unfortunately, the r-squared is not a robust statistic of which linear regressions look unacceptable...
 
 # clean up
-rm(temp_CFUsurviv, CFU_survival.df, CFUraw_inocula, inoc_data, inoc, sam, t, temp.low_rsq)
+rm(temp_CFUsurviv, CFUraw_inocula, inoc_data, inoc, sam, t, temp.low_rsq)
 ```
 
 I removed all growth curves whose inoculated population size (by CFU estimates) was less than 20 cells. This is because low inocula will lead to very stochastic time-to-detection values, and we aren't interested in that.
@@ -1231,6 +1263,10 @@ To get the 95% CI on the slope, I bootstrapped the data. Therefore I'm not very 
 ## Plot & Analyze
 
 ```{r, growthcurves_plot_mu}
+# re-order the Species for appropriate colour plotting
+Dil_growthrates.df$Species <- factor(Dil_growthrates.df$Species,
+                                     levels=c("P. veronii", "P. grimontii", "P. plecoglossicida", "P. protegens", "P. knackmussii", "P. putida"))
+
 # for plotting little skulls to emphasize lack of growth
 Dil_growthrates.df$Shape <- ifelse(Dil_growthrates.df$mu==0, "\u2620", "\u25cf")
 # re-organize the data.frame for correct plotting of shapes
@@ -1273,8 +1309,31 @@ ggplot(muEXP.df,
   scale_colour_manual(values=ALLsp_palette) +
   scale_linetype_manual(values=c("dashed", "solid"))+
   labs(x=paste0("Temperature (", "\u00B0", "C)"),
-       y=expression(paste("Intrinsic Growth Rate (", hr^{-1},")"))
+       y=expression(paste("Intrinsic Growth Rate (", hr^{-1},")")),
+       linetype = "nope"
        )
+
+# high quality figure for manuscript main text
+png(filename="Fig2_A.png", width = 8.52, height = 4.4, units = "in", res=300)
+ggplot(muEXP.df,
+       aes(x=Temp, y=mu, colour=Species, group=Species, linetype=Species_in_Expt2)) +
+  # do NOT smooth the line used to join species across temperatures
+  stat_summary(fun.y=mean, geom="line", position=position_dodge(width=1.5)) +
+  geom_point(alpha=0.25, na.rm=TRUE, position=position_dodge(width = 1.5),
+             shape=muEXP.df$Shape, size=3) +
+  geom_linerange(aes(ymin=mu_lwrCI, ymax=mu_uprCI),
+                 alpha=0.25, na.rm=TRUE, position=position_dodge(width = 1.5),
+                 linetype="solid") +
+  scale_colour_manual(values=ALLsp_palette) +
+  scale_linetype_manual(values=c("dashed", "solid"))+
+  labs(x=paste0("Temperature (", "\u00B0", "C)"),
+       y=expression(paste("Intrinsic Growth Rate (", hr^{-1},")")),
+       linetype = "Growth")
+  # note that custom unicode shapes are very difficult to render in the legend
+  # because R has poor font support.
+  # see here: https://stackoverflow.com/questions/54870912/ggplot-shape-unicode-e-g-arrows-like-u2198-or-latex-searrow
+dev.off()
+
 # I SHOULD BE USING position_dodge2 TO SHOW ALL THE POINTS,
 # but when I do that, the skulls end up in the wrong place
 # on the other hand, there are no non-zero small values so maybe we can forget about the shape
@@ -1328,35 +1387,38 @@ ggplot(muSTA.df,
 rm(muSTA.df, muEXP.df)
 ```
 
-Finally, we can test whether the species' rank orders remain the same across temperatures. We can do this for all 6 species across all 4 temperatures (using the Kendall's Coefficient of Concordance). And we can also do it across a pair of 2 temperatures (using Spearman’s Rank Correlation Coefficient).
+Finally, we can test whether the species' rank orders remain the same across temperatures. We can do this for all 6 species across all 4 temperatures (using the Kendall's Coefficient of Concordance). This would test the null hypothesis that bacterial species cannot be separated into fast VS slow growers. Alternative hypothesis: growth rate ranking is correlated across temperatures.
+
+And we can also do it across a pair of temperatures (using Spearman’s Rank Correlation Coefficient). This would test the null hypothesis that a species ranking at "ambient" temperature (e.g., 25C or 30C) is not correlated with its ranking at extreme heat (40C). Alternative hypothesis: growth rate ranking at ambient temperature is (positively or negatively) correlated with growth under extreme heat.
 
 ```{r, growthcurves_rankorder}
 # get the species rank by finding the median mu of each species
 ranks.df <- Dil_growthrates.df %>% group_by(Inoculum, Species, Temp) %>%
               summarise(medMu = median(mu))
 
-# first try for exponential phase
+# first try for exponential phase:
+
+# test for overall fast vs slow growth strategy across all 4 temperatures
 exp_rank.df <- ranks.df %>% filter(Inoculum == "Exponential") %>%
                 pivot_wider(names_from = Temp, values_from = medMu)
 KendallW(exp_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-# we can also test if there's a correlation between 30C and 40C
+
+# test for correlation between fast vs slow growth strategy and growth under extreme heat
+cor.test(exp_rank.df$`25`, exp_rank.df$`40`, method = "spearman")
 cor.test(exp_rank.df$`30`, exp_rank.df$`40`, method = "spearman")
-# hmm, that's not very meaningful as there is a lot of death. Try 30C & 35C
-cor.test(exp_rank.df$`30`, exp_rank.df$`35`, method = "spearman")
-# also for sanity-check, let's try 25C and 30C
-cor.test(exp_rank.df$`30`, exp_rank.df$`25`, method = "spearman")
 
 
-# also try for stationary phase
+
+# and for stationary phase
+
+# test for overall fast vs slow growth strategy across all 4 temperatures
 sta_rank.df <- ranks.df %>% filter(Inoculum == "Stationary") %>%
                 pivot_wider(names_from = Temp, values_from = medMu)
 KendallW(sta_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-# test if there's a correlation between 30C and 40C
+# test for correlation between fast vs slow growth strategy and growth under extreme heat
+cor.test(sta_rank.df$`25`, exp_rank.df$`40`, method = "spearman")
 cor.test(sta_rank.df$`30`, exp_rank.df$`40`, method = "spearman")
-# and between 30C and 35C
-cor.test(sta_rank.df$`30`, sta_rank.df$`35`, method = "spearman")
-# finally, for sanity-check: 25C and 30C
-cor.test(sta_rank.df$`30`, sta_rank.df$`25`, method = "spearman")
+
 
 
 ################################
@@ -1365,26 +1427,283 @@ cor.test(sta_rank.df$`30`, sta_rank.df$`25`, method = "spearman")
 # now we consider just the subset of 4 species
 rank4.df <- ranks.df %>% filter(Species %in% c("P. putida", "P. protegens", "P. grimontii", "P. veronii"))
 
-# first try for exponential phase
+# first for exponential phase
+# fast vs slow growth strategy:
 exp4_rank.df <- rank4.df %>% filter(Inoculum == "Exponential") %>%
                 pivot_wider(names_from = Temp, values_from = medMu)
 KendallW(exp4_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-# we can also test if there's a correlation between 30C and 40C
+# correlation between rankings at ambient vs extreme heat
+cor.test(exp4_rank.df$`25`, exp4_rank.df$`40`, method = "spearman")
 cor.test(exp4_rank.df$`30`, exp4_rank.df$`40`, method = "spearman")
-# and between 30C and 35C
-cor.test(exp4_rank.df$`30`, exp4_rank.df$`35`, method = "spearman")
 
-# also try for stationary phase
+# and for stationary phase
+# fast vs slow growth strategy:
 sta4_rank.df <- rank4.df %>% filter(Inoculum == "Stationary") %>%
                 pivot_wider(names_from = Temp, values_from = medMu)
 KendallW(sta4_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-# test if there's a correlation between 30C and 40C
+# correlation between rankings at ambient vs extreme heat
+cor.test(sta4_rank.df$`25`, exp4_rank.df$`40`, method = "spearman")
 cor.test(sta4_rank.df$`30`, exp4_rank.df$`40`, method = "spearman")
-# and between 30C and 35C
-cor.test(sta4_rank.df$`30`, sta4_rank.df$`35`, method = "spearman")
-```
-Okay, so there is a pretty good correlation in the species rankings across all the temperatures. For the complete set of all 6 species there is a significant positive correlation in the rankings across all 4 temperatures (both exponential and stationary inocula at p<0.05 by Kendall's coefficient of concordance Wt). If we consider the sub-set of 4 species used in Expt2, then the p-value becomes slightly smaller but still just p<0.05 so it's nothing to write home about.
 
-If we consider any particular pair of temperatures (using Spearman's rank correlation rho), it seems that the only thing happening is that we lose a lot of power when we compare 40C to any of the other temperatures. This is because most species go extinct at 40C and this generates a lot of ties. As a result, the p-value becomes non-significant. This is nothing to write home about either.
+
+# clean up
+rm(ranks.df, rank4.df, exp_rank.df, exp4_rank.df, sta_rank.df, sta4_rank.df)
+```
+Okay, so there is a pretty good correlation in the species rankings across all the temperatures. For the complete set of all 6 species there is a significant positive correlation in the rankings across all 4 temperatures (both exponential and stationary inocula at p<0.05 by Kendall's coefficient of concordance Wt). The Wt values are moderate (Wt=0.569 for exponential, Wt=0.631 for stationary). 
+
+If we consider the sub-set of 4 species used in Expt2, then the Wt values go up (Wt=0.917 for both exponential and stationary). Also the p-value becomes slightly smaller but still just p<0.05 so it's nothing to write home about.
+
+Then we can use use Spearman's rank correlation (rho), to check for a significant correlation between ambient (25C or 30C) growth rate ranking and extreme heat (40C) growth rate ranking. Here we see no significant effects for either all 6 species (p$\approx$0.5) or the subset of 4 species (p$\approx$0.2). The rho value is smaller for all 6 species and bigger for the subset of 4 species. But not significant.
+
+```{r, growthrates_slowfast_&_resistance}
+resist_mu <- Dil_growthrates.df %>% select(Sample, Species, Temp, Inoculum, mu) %>%
+                pivot_wider(names_from = Temp, names_prefix="mu_Temp", values_from = mu)
+
+####################
+# mu at 25C predicting mu at 40C
+####################
+
+# fit a linear model where mu at 25C predicts mu at 40C but with random effect of species ... (if we're here anyway, test if Inoculum has any effect)
+tmpLM0_mu_25 <- glmmTMB(mu_Temp40 ~ mu_Temp25, # fixed effect only
+                        data = resist_mu)
+tmpLMM0_mu <- glmmTMB(mu_Temp40 ~ (1|Species), # random effect NULL MODEL!!!
+                        data = resist_mu)
+tmpLMM_mu_25 <- glmmTMB(mu_Temp40 ~ mu_Temp25 + (1|Species),
+                        data = resist_mu)
+tmpLMM2_mu_25 <- glmmTMB(mu_Temp40 ~ mu_Temp25 + (1|Inoculum),
+                        data = resist_mu)
+tmpLMM3_mu_25 <- glmmTMB(mu_Temp40 ~ mu_Temp25 + (1|Species) + (1|Inoculum),
+                        data = resist_mu)
+BIC(tmpLM0_mu_25, tmpLMM0_mu, tmpLMM_mu_25, tmpLMM2_mu_25, tmpLMM3_mu_25) %>% arrange(BIC)
+# the null model with random effect of species is the best model
+anova(tmpLMM0_mu, tmpLMM_mu_25)
+rm(tmpLM0_mu_25, tmpLMM2_mu_25, tmpLMM3_mu_25)
+# BUT we are NOT INTERESTED in the null model with only random effect of species!!!
+
+# okay so it seems that my intuition was right that a model with random effect of species is best. Let's plot it & see it's effect sizes and explanatory power
+tmp_resist_mu <- cbind(resist_mu,
+                       predicted = predict(tmpLMM_mu_25, type="response"),
+                       resid = residuals(tmpLMM_mu_25))
+ggplot(tmp_resist_mu,
+       aes(x=mu_Temp25, y=mu_Temp40, colour=Species, shape=Inoculum)) +
+  geom_point(alpha=0.5) +
+  geom_line(aes(y = predicted, group = Species)) +
+  scale_colour_manual(values=ALLsp_palette) +
+  labs(x="Growth rate at 25C", y="Growth rate at 40C")
+summary(tmpLMM_mu_25)
+emmeans(tmpLMM_mu_25, ~ mu_Temp25, type="response")
+efronRSquared(residual = tmp_resist_mu$resid, 
+              predicted = tmp_resist_mu$predicted, 
+              statistic = "EfronRSquared")
+# hahhahhaha, I love this r-squared value! I guess the random effect of species is actually a great fit. We already saw this from the BIC model comparison above.
+rm(tmpLMM_mu_25, tmp_resist_mu)
+
+####################
+# mu at 30C predicting mu at 40C
+####################
+
+# fit a linear model where mu at 30C predicts mu at 40C but with random effect of species ... (if we're here anyway, test if Inoculum has any effect)
+tmpLM0_mu_30 <- glmmTMB(mu_Temp40 ~ mu_Temp30, # fixed effect only
+                        data = resist_mu)
+tmpLMM0_mu <- glmmTMB(mu_Temp40 ~ (1|Species), # random effect NULL MODEL!!!
+                        data = resist_mu)
+tmpLMM_mu_30 <- glmmTMB(mu_Temp40 ~ mu_Temp30 + (1|Species),
+                        data = resist_mu)
+tmpLMM2_mu_30 <- glmmTMB(mu_Temp40 ~ mu_Temp30 + (1|Inoculum),
+                        data = resist_mu)
+tmpLMM3_mu_30 <- glmmTMB(mu_Temp40 ~ mu_Temp30 + (1|Species) + (1|Inoculum),
+                        data = resist_mu)
+BIC(tmpLM0_mu_30, tmpLMM0_mu, tmpLMM_mu_30, tmpLMM2_mu_30, tmpLMM3_mu_30) %>% arrange(BIC)
+# the null model with random effect of species is the best model
+anova(tmpLMM0_mu, tmpLMM_mu_30)
+rm(tmpLM0_mu_30, tmpLMM0_mu, tmpLMM2_mu_30, tmpLMM3_mu_30)
+# BUT we are NOT INTERESTED in the null model with only random effect of species!!!
+
+# again my intuition was right. Let's plot & analyze the model of interest
+tmp_resist_mu <- cbind(resist_mu,
+                       predicted = predict(tmpLMM_mu_30, type="response"),
+                       resid = residuals(tmpLMM_mu_30))
+ggplot(tmp_resist_mu,
+       aes(x=mu_Temp30, y=mu_Temp40, colour=Species, shape=Inoculum)) +
+  geom_point(alpha=0.5) +
+  geom_line(aes(y = predicted, group = Species)) +
+  scale_colour_manual(values=ALLsp_palette) +
+  labs(x="Growth rate at 30C", y="Growth rate at 40C")
+summary(tmpLMM_mu_30)
+emmeans(tmpLMM_mu_30, ~ mu_Temp30, type="response")
+efronRSquared(residual = tmp_resist_mu$resid, 
+              predicted = tmp_resist_mu$predicted, 
+              statistic = "EfronRSquared")
+# again, this great explanatory power is coming purely from the random effect of species
+rm(tmpLMM_mu_30, tmp_resist_mu)
+
+
+####################
+# mu at 25C predicting relative CFU at 40C
+####################
+
+resist_CFU <- inner_join(resist_mu %>% select(-mu_Temp35, -mu_Temp40),
+                         CFU_survival.df %>% filter(Temp == 40) %>% select(-Shape, -temp_as_factor),
+                   by = c("Sample", "Species", "Inoculum"))
+
+# fit a linear model where mu at 25C predicts relative CFU at 40C but with random effect of species ... (if we're here anyway, test if Inoculum has any effect)
+tmpLM0_CFU_25 <- glmmTMB(mean_surviv ~ mu_Temp25, # fixed effect only
+                        data = resist_CFU)
+tmpLMM0_CFU <- glmmTMB(mean_surviv ~ (1|Species), # random effect NULL MODEL!!!
+                        data = resist_CFU)
+tmpLMM_CFU_25 <- glmmTMB(mean_surviv ~ mu_Temp25 + (1|Species),
+                        data = resist_CFU)
+tmpLMM2_CFU_25 <- glmmTMB(mean_surviv ~ mu_Temp25 + (1|Inoculum),
+                        data = resist_CFU)
+tmpLMM3_CFU_25 <- glmmTMB(mean_surviv ~ mu_Temp25 + (1|Species) + (1|Inoculum),
+                        data = resist_CFU)
+BIC(tmpLM0_CFU_25, tmpLMM0_CFU, tmpLMM_CFU_25, tmpLMM2_CFU_25, tmpLMM3_CFU_25) %>% arrange(BIC)
+# the null model with random effect of species is the best model
+anova(tmpLMM0_CFU, tmpLMM_CFU_25)
+rm(tmpLM0_CFU_25, tmpLMM2_CFU_25, tmpLMM3_CFU_25)
+# BUT we are NOT INTERESTED in the null model with only random effect of species!!!
+
+# again my intuition was right. Let's plot & analyze the model of interest
+tmp_resist_CFU <- cbind(resist_CFU,
+                       predicted = predict(tmpLMM_CFU_25, type="response"),
+                       resid = residuals(tmpLMM_CFU_25))
+ggplot(tmp_resist_CFU,
+       aes(x=mu_Temp25, y=mean_surviv, colour=Species, shape=Inoculum)) +
+  geom_point(alpha=0.5) +
+  geom_line(aes(y = predicted, group = Species)) +
+  scale_colour_manual(values=ALLsp_palette) +
+  labs(x="Growth rate at 25C", y="Relative CFU at 40C")
+summary(tmpLMM_CFU_25)
+emmeans(tmpLMM_CFU_25, ~ mu_Temp25, type="response")
+efronRSquared(residual = tmp_resist_CFU$resid, 
+              predicted = tmp_resist_CFU$predicted, 
+              statistic = "EfronRSquared")
+# again, this high explanatory power is coming purely from the random effect of species
+rm(tmpLMM_CFU_25, tmp_resist_CFU)
+
+
+
+####################
+# mu at 30C predicting relative CFU at 40C
+####################
+
+# fit a linear model where mu at 30C predicts relative CFU at 40C but with random effect of species ... (if we're here anyway, test if Inoculum has any effect)
+tmpLM0_CFU_30 <- glmmTMB(mean_surviv ~ mu_Temp30, # fixed effect only
+                        data = resist_CFU)
+tmpLMM_CFU_30 <- glmmTMB(mean_surviv ~ mu_Temp30 + (1|Species),
+                        data = resist_CFU)
+tmpLMM2_CFU_30 <- glmmTMB(mean_surviv ~ mu_Temp30 + (1|Inoculum),
+                        data = resist_CFU)
+tmpLMM3_CFU_30 <- glmmTMB(mean_surviv ~ mu_Temp30 + (1|Species) + (1|Inoculum),
+                        data = resist_CFU)
+BIC(tmpLM0_CFU_30, tmpLMM0_CFU, tmpLMM_CFU_30, tmpLMM2_CFU_30, tmpLMM3_CFU_30) %>% arrange(BIC)
+# HA! finally the mixed model is at least as good as the null model!
+anova(tmpLMM0_CFU, tmpLMM_CFU_30)
+rm(tmpLM0_CFU_30, tmpLMM2_CFU_30, tmpLMM3_CFU_30, tmpLMM0_CFU)
+# great, now we are even justified to get rid of the null model :)
+
+# Let's plot & analyze the top model
+tmp_resist_CFU <- cbind(resist_CFU,
+                       predicted = predict(tmpLMM_CFU_30, type="response"),
+                       resid = residuals(tmpLMM_CFU_30))
+ggplot(tmp_resist_CFU,
+       aes(x=mu_Temp30, y=mean_surviv, colour=Species, shape=Inoculum)) +
+  geom_point(alpha=0.5) +
+  geom_line(aes(y = predicted, group = Species)) +
+  scale_colour_manual(values=ALLsp_palette) +
+  labs(x="Growth rate at 30C", y="Relative CFU at 40C")
+summary(tmpLMM_CFU_30)
+# the trouble here is that the model is only very slightly significant and we probably need to correct for multiple testing... 
+emmeans(tmpLMM_CFU_30, ~ mu_Temp30, type="response")
+# in fact, so slight that the effect size is not quite significant
+efronRSquared(residual = tmp_resist_CFU$resid, 
+              predicted = tmp_resist_CFU$predicted, 
+              statistic = "EfronRSquared")
+rm(tmpLMM_CFU_30, tmp_resist_CFU)
+```
+
+The growth rate at "ambient" temperatures (25C or 30C) does not predict the growth rate at extreme temperature (40C). Neither does it predict the relative CFUs at extreme temperature... Although as the effect size for 30C is almost significant. Probably as the "ambient" temperature gets closer to the "extreme stress" temperature, there's going to be better agreement in the data.
+
+# Plot weird 40C growth by P. protegens
+
+P. protegens showed density-dependent growth at 40C. Growth curves for all strains at all temperatures are given above but below is a plot of P. protegens Pf5 to go in the supplement
+
+```{r, growthcurves_weirdProtegens}
+# first let's smooth out the data (we will need to do this for estimating the derivatives anyway)
+smoothed_ALL.df <- ALL_data.df %>% ungroup() %>%
+                      mutate(smooth_med3 = smooth_data(x = Time,
+                                                       y = OD,
+                                                       subset_by = uniqID,
+                                                       sm_method = "moving-median",
+                                                       window_width_n = 3),
+                             smoothOD = smooth_data(x = Time,
+                                                    y = smooth_med3,
+                                                    subset_by = uniqID,
+                                                    sm_method = "moving-average",
+                                                    window_width_n = 3))
+smoothed_ALL.df <- smoothed_ALL.df %>% mutate(smth_baselinedOD = smoothOD - medianBlankOD)
+
+# add the option to keep just the growth curves that were high quality enough to analyze for TTD
+  # e.g., exclude growth curves that were inoculated with too few cells
+smoothed_ALL.df$Dilution <- as.numeric(levels(smoothed_ALL.df$Dilution))[smoothed_ALL.df$Dilution] # temporarily change class for compatible joining
+smoothed_ALL.df <- left_join(smoothed_ALL.df,
+                             TTD.df %>% select(Temp, Sample, Dilution, Inoculum, uniqID, Species, TTD_0.05, TTD_0.13))
+smoothed_ALL.df$Dilution <- as.factor(smoothed_ALL.df$Dilution) # change back to factor because it's more convenient for plotting
+
+#########################
+# plot P. protegens
+#########################
+
+temp_data_for_plotting <- rbind(smoothed_ALL.df %>% 
+                                    filter(Species == "P. protegens",
+                                           !is.na(TTD_0.13)),
+  # replicates at 40C were excluded from TTD so need to add them back in manually for plotting
+                                smoothed_ALL.df %>% 
+                                    filter(Species == "P. protegens",
+                                           Temp == 40))
+ggplot(temp_data_for_plotting,
+       aes(y = smth_baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
+  facet_wrap(vars(Temp)) +
+  scale_y_log10(limits=c(0.005,1.1)) +
+  geom_line(alpha=0.5) +
+  labs(x="Time (hrs)", y="A600 (corrected O.D.)")
+
+# wells that failed to grow seemed to have had condensation early on
+# this obscures the information we are trying to present so let's try to exclude all wells that failed to grow
+temp <- temp_data_for_plotting %>% group_by(uniqID, Temp, Dilution, Sample) %>%
+          summarise(medOD = median(smth_baselinedOD, na.rm=TRUE))
+these_grew <- temp$uniqID[temp$medOD > 0.02]
+
+ggplot(temp_data_for_plotting %>% filter(uniqID %in% these_grew),
+       aes(y = smth_baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
+  facet_wrap(vars(Temp)) +
+  scale_y_log10(limits=c(0.005,1.1)) +
+  geom_line(alpha=0.5) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)")
+
+#########################
+# for comparison, plot P. veronii
+#########################
+
+temp_data_for_plotting <- rbind(smoothed_ALL.df %>% 
+                                  filter(Species == "P. veronii",
+                                         !is.na(TTD_0.05)),
+    # replicates at 40C were excluded from TTD so need to add them back in manually for plotting
+                                smoothed_ALL.df %>% 
+                                    filter(Species == "P. veronii",
+                                           Temp == 40,
+                                           Dilution != "1e-06"))
+ggplot(temp_data_for_plotting,
+       aes(y = smth_baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
+  facet_wrap(vars(Temp)) +
+  scale_y_log10(limits=c(0.005,1.5)) +
+  geom_line(alpha=0.5) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)")
+
+# clean up
+rm(temp_data_for_plotting, test, these_grew)
+```
+
+# Plot intraspecific density dependence of growth rate
 
 
