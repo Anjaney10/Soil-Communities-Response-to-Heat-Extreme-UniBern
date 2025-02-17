@@ -408,9 +408,36 @@ CFU_survival.df <-  CFUraw_survival %>% group_by(Sample, Species, Strain, Temp, 
 rm(annot.df)
 ```
 
+## Which hot temperature has lower CFU?
+
+It's pretty clear from the plots below that 40C is worse than 35C (...which is why we should always plot the data first XD) but let's also put some statistics on that.
+
+At first I was thinking that the the CFU data was continuous. Then the appropriate statistic would be a paired t-test. Remember that the data is coming from the exact same inoculum plated (n=3) at different temperatures. The test should be run directly on the CFU_at_stress for 40C versus 30C (instead of running it on the fraction of CFU at the stress temperature).
+
+However, since CFU data is counts, this means that we have to use the Wilcoxon Signed-Rank Test. Which is just as well because the CFU data wasn't Normally distributed anyway and this test is non-parametric.
+
+```{r, CFU_signif_temp}
+# widen the data: CFU at 30C should be in the same row as corresponding CFU at 40C
+CFUraw_pairs <- CFUraw_survival %>% select(-survival, -Notes, -`Stress Incubation time (days)`, -Dilution_Counted, -CFU_at_28, -Vol_Plated_mL, -`Incubation time_29 (days)`) %>%
+                  unite("uniqPAIR", c(Sample, Inoculum, Replicate), remove=FALSE) %>%
+                    pivot_wider(names_from = Temp,
+                                names_glue = "{.value}{Temp}",
+                                values_from = CFU_at_stress)
+
+# run the test
+paired.test <- with(CFUraw_pairs,
+                    wilcox.test(CFU_at_stress35, CFU_at_stress40, paired=TRUE))
+print(paired.test)
+
+# clean up
+rm(paired.test, CFUraw_pairs)
+```
+
 ## Does stationary phase protect cells from heat?
 
-Based on the classical microbiology literature, I would expect that stationary phase cultures would be more resistant to high temperatures as compared to exponential phase cultures. Let's check if there's a significant effect of the inoculum phase (i.e., exponential or stationary) on the CFU. To do this we will use a two-way ANOVA.
+Based on the classical microbiology literature, I would expect that stationary phase cultures would be more resistant to high temperatures as compared to exponential phase cultures. Let's check if there's a significant effect of the inoculum phase (i.e., exponential or stationary) on the CFU. To do this roughly we will use a two-way ANOVA.
+
+If we were interested in doing this properly, I think it would be better to do a GLMM (Poisson family) on the raw counts data (i.e., the CFUs) at 28C, 35C, and 40C with temperature as a numeric predictor, Inoculum as a categorical predictor, and Species as a random effect...
 
 ```{r, CFU_signif_innoculum}
 # convert the columns of the independent variables to factors
@@ -418,13 +445,20 @@ CFUraw_survival$Temp <- as.factor(CFUraw_survival$Temp)
 CFUraw_survival$Species <- as.factor(CFUraw_survival$Species)
 CFUraw_survival$Inoculum <- as.factor(CFUraw_survival$Inoculum)
 
-# do the anova
-  # no interaction
-survival.anova <- aov(survival ~ Inoculum + Species + Temp, data = CFUraw_survival)
-  # interaction
+# no interaction
+survival.anova.2way <- aov(survival ~ Inoculum + Species + Temp, data = CFUraw_survival)
+# check the model:
+#plot(survival.anova.2way)
+# the residuals could look better (large residuals for intermediate values) but it's acceptable
+
+# all possible interactions
 survival.anova.ALLinteractions <- aov(survival ~ Inoculum * Species * Temp, data = CFUraw_survival)
+# check the model:
+#plot(survival.anova.ALLinteractions)
+# this looks a bit worse than above
+
 # use AIC to select the preferred model
-model.set <- list(survival.anova, survival.anova.ALLinteractions)
+model.set <- list(survival.anova.2way, survival.anova.ALLinteractions)
 model.names <- c("two.way", "interaction")
 aictab(model.set, modnames = model.names)
 
@@ -433,7 +467,7 @@ summary(survival.anova.ALLinteractions)
 #TukeyHSD(survival.anova.ALLinteractions) # don't print this because it's very long and not so meaningful
 
 # clean up
-rm(survival.anova, survival.anova.ALLinteractions, model.set, model.names)
+rm(survival.anova.2way, survival.anova.ALLinteractions, model.set, model.names)
 ```
 So there's a very slight effect of inoculum phase, but this is definitely less important than the effect of species. In fact, it seems that the inoculum effect actually interacts with the species. Neat!
 
