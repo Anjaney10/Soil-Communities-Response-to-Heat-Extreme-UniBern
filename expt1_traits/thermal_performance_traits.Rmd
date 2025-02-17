@@ -1077,8 +1077,21 @@ ggplot(binary_survival,
 # display the correlation:
 summary(lm(binary_survival$mean_surviv ~ binary_survival$fraction_batch))
 
+
+# let's also check specifically the data at 40C, as this is where the cultures fail to grow and so this temperature is likely to be most problematic
+binary_survival40 <- binary_survival %>% filter(Temp == 40)
+ggplot(binary_survival40,
+       aes(y=mean_surviv, x=fraction_batch)) +
+  geom_point(alpha=0.1) +
+  labs(y="Fraction of CFUs that grew",
+       x="Fraction of batch cultures that grew",
+       title="40C only")
+# display the correlation:
+summary(lm(binary_survival40$mean_surviv ~ binary_survival40$fraction_batch))
+
+
 # clean up
-rm(temp_CFUsurviv, binary_survival)
+rm(temp_CFUsurviv, binary_survival, binary_survival40)
 ```
 
 Batch culture and CFU data are not exactly the same but they tend to be in good agreement ($R^2 \approx 0.84$).
@@ -1361,7 +1374,7 @@ ggplot(muEXP.df,
   scale_colour_manual(values=ALLsp_palette) +
   scale_linetype_manual(values=c("dashed", "solid"))+
   labs(x=paste0("Temperature (", "\u00B0", "C)"),
-       y=expression(paste("Intrinsic Growth Rate (", hr^{-1},")")),
+       y=expression(paste("Intrinsic Growth Rate ± 95% CI (", hr^{-1},")")),
        linetype = "Growth")
   # note that custom unicode shapes are very difficult to render in the legend
   # because R has poor font support.
@@ -1420,6 +1433,8 @@ ggplot(muSTA.df,
 
 rm(muSTA.df, muEXP.df)
 ```
+
+### Statistical test of species rank orders
 
 Finally, we can test whether the species' rank orders remain the same across temperatures. We can do this for all 6 species across all 4 temperatures (using the Kendall's Coefficient of Concordance). This would test the null hypothesis that bacterial species cannot be separated into fast VS slow growers. Alternative hypothesis: growth rate ranking is correlated across temperatures.
 
@@ -1487,7 +1502,9 @@ Okay, so there is a pretty good correlation in the species rankings across all t
 
 If we consider the sub-set of 4 species used in Expt2, then the Wt values go up (Wt=0.917 for both exponential and stationary). Also the p-value becomes slightly smaller but still just p<0.05 so it's nothing to write home about.
 
-Then we can use use Spearman's rank correlation (rho), to check for a significant correlation between ambient (25C or 30C) growth rate ranking and extreme heat (40C) growth rate ranking. Here we see no significant effects for either all 6 species (p$\approx$0.5) or the subset of 4 species (p$\approx$0.2). The rho value is smaller for all 6 species and bigger for the subset of 4 species. But not significant.
+### Correlation between species growth rate & its heat resistance
+
+Then we can use use Spearman's rank correlation (rho), to check for a significant correlation between ambient (25C or 30C) growth rate ranking and extreme heat (40C) growth rate ranking. Here we see no significant effects for either all 6 species (p $\approx$ 0.5) or the subset of 4 species (p $\approx$ 0.2). The rho value is smaller for all 6 species and bigger for the subset of 4 species. But not significant.
 
 ```{r, growthrates_slowfast_&_resistance}
 resist_mu <- Dil_growthrates.df %>% select(Sample, Species, Temp, Inoculum, mu) %>%
