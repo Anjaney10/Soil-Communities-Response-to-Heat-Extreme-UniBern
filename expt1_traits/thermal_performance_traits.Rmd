@@ -1067,6 +1067,8 @@ binary_survival <- inner_join(binary_survival,
                               by = c("Temp", "Sample", "Inoculum"))
 
 # CFU growth > 1 is not particularly meaningful for this analysis
+  # this assumption is pretty reasonable as the 95% CI overlaps with 1.0
+  # for all species anyway, except for stationary phase P. knackmussii
 binary_survival$mean_surviv[binary_survival$mean_surviv > 1] <- 1
 
 ggplot(binary_survival,
