@@ -1039,6 +1039,8 @@ It seems that the lower TTD value (0.05) is good for most of the growth curves b
 
 Below we can see that although bigger values are systematically estimated for TTD when the cut-off is bigger, there's actually very good correlation between the estimates. In general I will prefer the lower cut-off value (0.05).
 
+### Check concordance of batch culture & CFU data
+
 Before we combine the TTD data with the inoculum sizes from the CFU data, let's convince ourselves that these two types of data are generally in agreement with one another. Use the data from both the higher and the lower TTD cutoffs as a binary indicator of growth (i.e., if we failed to find you at both cutoffs, then we assume that you didn't grow at all). AKA survival at different temperatures. Then we will compare the binary indicator of growth with whether growth was observed or not by CFU.
 
 ```{r, survival_fromCurves}
@@ -1072,24 +1074,24 @@ binary_survival <- inner_join(binary_survival,
 binary_survival$mean_surviv[binary_survival$mean_surviv > 1] <- 1
 
 ggplot(binary_survival,
-       aes(y=mean_surviv, x=fraction_batch)) +
+       aes(x=mean_surviv, y=fraction_batch)) +
   geom_point(alpha=0.1) +
-  labs(y="Fraction of CFUs that grew",
-       x="Fraction of batch cultures that grew")
+  labs(x="Fraction of CFUs that grew",
+       y="Fraction of batch cultures that grew")
 # display the correlation:
-summary(lm(binary_survival$mean_surviv ~ binary_survival$fraction_batch))
+summary(lm(binary_survival$fraction_batch ~ binary_survival$mean_surviv))
 
 
 # let's also check specifically the data at 40C, as this is where the cultures fail to grow and so this temperature is likely to be most problematic
 binary_survival40 <- binary_survival %>% filter(Temp == 40)
 ggplot(binary_survival40,
-       aes(y=mean_surviv, x=fraction_batch)) +
+       aes(x=mean_surviv, y=fraction_batch)) +
   geom_point(alpha=0.1) +
-  labs(y="Fraction of CFUs that grew",
-       x="Fraction of batch cultures that grew",
+  labs(x="Fraction of CFUs that grew",
+       y="Fraction of batch cultures that grew",
        title="40C only")
 # display the correlation:
-summary(lm(binary_survival40$mean_surviv ~ binary_survival40$fraction_batch))
+summary(lm(binary_survival40$fraction_batch ~ binary_survival40$mean_surviv))
 
 
 # clean up
@@ -1438,75 +1440,174 @@ rm(muSTA.df, muEXP.df)
 
 ### Statistical test of species rank orders
 
-Finally, we can test whether the species' rank orders remain the same across temperatures. We can do this for all 6 species across all 4 temperatures (using the Kendall's Coefficient of Concordance). This would test the null hypothesis that bacterial species cannot be separated into fast VS slow growers. Alternative hypothesis: growth rate ranking is correlated across temperatures.
+We can test whether the species' rank orders remain the same across temperatures. We can do this for all 6 species across all 4 temperatures (using the Kendall's Coefficient of Concordance). This would test the null hypothesis that bacterial species cannot be separated into fast VS slow growers. Alternative hypothesis: growth rate ranking is correlated across temperatures.
 
-And we can also do it across a pair of temperatures (using Spearman’s Rank Correlation Coefficient). This would test the null hypothesis that a species ranking at "ambient" temperature (e.g., 25C or 30C) is not correlated with its ranking at extreme heat (40C). Alternative hypothesis: growth rate ranking at ambient temperature is (positively or negatively) correlated with growth under extreme heat.
 
-```{r, growthcurves_rankorder}
+```{r, growthcurves_fastslow_strategy}
 # get the species rank by finding the median mu of each species
-ranks.df <- Dil_growthrates.df %>% group_by(Inoculum, Species, Temp) %>%
+median_mu.df <- Dil_growthrates.df %>% group_by(Inoculum, Species, Temp) %>%
               summarise(medMu = median(mu))
 
 # first try for exponential phase:
 
 # test for overall fast vs slow growth strategy across all 4 temperatures
-exp_rank.df <- ranks.df %>% filter(Inoculum == "Exponential") %>%
+exp_rank.df <- median_mu.df %>% filter(Inoculum == "Exponential") %>%
                 pivot_wider(names_from = Temp, values_from = medMu)
 KendallW(exp_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-
-# test for correlation between fast vs slow growth strategy and growth under extreme heat
-cor.test(exp_rank.df$`25`, exp_rank.df$`40`, method = "spearman")
-cor.test(exp_rank.df$`30`, exp_rank.df$`40`, method = "spearman")
-
 
 
 # and for stationary phase
 
 # test for overall fast vs slow growth strategy across all 4 temperatures
-sta_rank.df <- ranks.df %>% filter(Inoculum == "Stationary") %>%
+sta_rank.df <- median_mu.df %>% filter(Inoculum == "Stationary") %>%
                 pivot_wider(names_from = Temp, values_from = medMu)
 KendallW(sta_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-# test for correlation between fast vs slow growth strategy and growth under extreme heat
-cor.test(sta_rank.df$`25`, exp_rank.df$`40`, method = "spearman")
-cor.test(sta_rank.df$`30`, exp_rank.df$`40`, method = "spearman")
 
 
-
-################################
-# just the subset of 4 species
-################################
-# now we consider just the subset of 4 species
-rank4.df <- ranks.df %>% filter(Species %in% c("P. putida", "P. protegens", "P. grimontii", "P. veronii"))
-
-# first for exponential phase
-# fast vs slow growth strategy:
-exp4_rank.df <- rank4.df %>% filter(Inoculum == "Exponential") %>%
-                pivot_wider(names_from = Temp, values_from = medMu)
-KendallW(exp4_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-# correlation between rankings at ambient vs extreme heat
-cor.test(exp4_rank.df$`25`, exp4_rank.df$`40`, method = "spearman")
-cor.test(exp4_rank.df$`30`, exp4_rank.df$`40`, method = "spearman")
-
-# and for stationary phase
-# fast vs slow growth strategy:
-sta4_rank.df <- rank4.df %>% filter(Inoculum == "Stationary") %>%
-                pivot_wider(names_from = Temp, values_from = medMu)
-KendallW(sta4_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
-# correlation between rankings at ambient vs extreme heat
-cor.test(sta4_rank.df$`25`, exp4_rank.df$`40`, method = "spearman")
-cor.test(sta4_rank.df$`30`, exp4_rank.df$`40`, method = "spearman")
-
+# the thing is that we are not interested in exponential or stationary phase *PER SE*
+# we are using these different cell physiologies as a way to make our results more generalizable
+# so let's average across these different phases:
+mean_median_mu.df <- median_mu.df %>% ungroup() %>% group_by(Species, Temp) %>%
+                          summarise(mu_acrossInoc = mean(medMu))
+ranks_acrossInoc.df <- mean_median_mu.df %>% pivot_wider(names_from = Temp, values_from = mu_acrossInoc)
+KendallW(ranks_acrossInoc.df[,-1*(1:2)], correct = TRUE, test = TRUE)
 
 # clean up
-rm(ranks.df, rank4.df, exp_rank.df, exp4_rank.df, sta_rank.df, sta4_rank.df)
+rm(median_mu.df, mean_median_mu.df)
 ```
-Okay, so there is a pretty good correlation in the species rankings across all the temperatures. For the complete set of all 6 species there is a significant positive correlation in the rankings across all 4 temperatures (both exponential and stationary inocula at p<0.05 by Kendall's coefficient of concordance Wt). The Wt values are moderate (Wt=0.569 for exponential, Wt=0.631 for stationary). 
 
-If we consider the sub-set of 4 species used in Expt2, then the Wt values go up (Wt=0.917 for both exponential and stationary). Also the p-value becomes slightly smaller but still just p<0.05 so it's nothing to write home about.
+Okay, so there is a pretty good correlation in the species rankings across all the temperatures. For the complete set of all 6 species there is a significant positive correlation in the rankings across all 4 temperatures (both exponential and stationary inocula at p<0.05 by Kendall's coefficient of concordance Wt). The Wt values are moderate (Wt=0.569 for exponential, Wt=0.631 for stationary).
+
+This significance drops off when we remember the account for multiple testing by using Bonferonni-corrected $\alpha=0.05/2=0.025$ :(
+
+On the other hand, we're not actually interested in the effect of exponential or stationary phase *per se* -- we're using this as a way to make our results more generalizable. So looking at the overall rankings I think makes more sense. We also find that the p-value is bigger than for either the exponential or stationary phase data so that makes me feel this is conservative enough without being overly conservative ...?
+
+```{r, fastslow_strategy_subset4sp}
+################################
+# consider the 4 SPECIES that do not change their rank order
+################################
+ranks_4species.df <- Dil_growthrates.df %>% filter(Species_in_Expt2 == TRUE) %>%
+                      group_by(Inoculum, Species, Temp) %>%
+                        summarise(medMu = median(mu))
+                        
+# first check exponential and stationary phase data separately:
+
+# exponential phase:
+exp4SP_rank.df <- ranks_4species.df %>% filter(Inoculum == "Exponential") %>%
+                    pivot_wider(names_from = Temp, values_from = medMu)
+KendallW(exp4SP_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
+
+# stationary phase:
+sta4SP_rank.df <- ranks_4species.df%>% filter(Inoculum == "Stationary") %>%
+                    pivot_wider(names_from = Temp, values_from = medMu)
+KendallW(sta4SP_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
+
+# finally check the combined data for both inocula
+mean_median_mu.df <- ranks_4species.df %>% ungroup() %>% group_by(Species, Temp) %>%
+                          summarise(mu_acrossInoc = mean(medMu))
+acrossInoc_4SP_rank <- mean_median_mu.df %>% pivot_wider(names_from = Temp, values_from = mu_acrossInoc)
+KendallW(acrossInoc_4SP_rank[,-1*(1:2)], correct = TRUE, test = TRUE)
+
+
+################################
+# just the exact 4 STRAINS used in Expt 2
+################################
+ranks_4strains.df <- Dil_growthrates.df %>% select(Sample, Temp, Inoculum, mu) %>%
+                      filter(Sample %in% c("BSC001", "CK101", "BSC019", "BSC005"))
+
+# first check exponential and stationary phase data separately:
+
+# exponential phase:
+exp4STR_rank.df <- ranks_4strains.df %>% filter(Inoculum == "Exponential") %>%
+                    pivot_wider(names_from = Temp, values_from = mu)
+KendallW(exp4STR_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
+
+# stationary phase:
+sta4STR_rank.df <- ranks_4strains.df %>% filter(Inoculum == "Stationary") %>%
+                    pivot_wider(names_from = Temp, values_from = mu)
+KendallW(sta4STR_rank.df[,-1*(1:2)], correct = TRUE, test = TRUE)
+
+# finally check the combined data for both inocula
+mean_median_mu.df <- ranks_4strains.df %>% ungroup() %>% group_by(Sample, Temp) %>%
+                          summarise(mu_acrossInoc = mean(mu))
+acrossInoc_4STR_rank <- mean_median_mu.df %>% pivot_wider(names_from = Temp, values_from = mu_acrossInoc)
+KendallW(acrossInoc_4STR_rank[,-1*(1:2)], correct = TRUE, test = TRUE)
+
+# clean up
+rm(ranks_4strains.df, mean_median_mu.df, ranks_4species.df)
+```
+
+If we consider the sub-set of 4 species used in Expt2, then the Wt values go up (Wt=0.917 for both exponential and stationary). Also the p-values have become small enough to slide under the Bonferonni-corrected $\alpha$'s :)
+
+I also double-checked that the specific strains used in Expt2 are in agreement with the overall species means (just in case!). The results are indeed consistent.
 
 ### Correlation between species growth rate & its heat resistance
 
-Then we can use use Spearman's rank correlation (rho), to check for a significant correlation between ambient (25C or 30C) growth rate ranking and extreme heat (40C) growth rate ranking. Here we see no significant effects for either all 6 species (p $\approx$ 0.5) or the subset of 4 species (p $\approx$ 0.2). The rho value is smaller for all 6 species and bigger for the subset of 4 species. But not significant.
+We can use a non-parametric approach using Spearman’s Rank Correlation Coefficient.
+This tests the null hypothesis that a species ranking at "ambient" temperature (e.g., 25C or 30C) is not correlated with its ranking at extreme heat (40C). Alternative hypothesis: growth rate ranking at ambient temperature is (positively or negatively) correlated with growth under extreme heat.
+
+
+```{r, rankorder_ambientVSextreme}
+# first, exponential phase:
+cor.test(exp_rank.df$`25`, exp_rank.df$`40`, method = "spearman")
+cor.test(exp_rank.df$`30`, exp_rank.df$`40`, method = "spearman")
+
+
+# then for stationary phase
+cor.test(sta_rank.df$`25`, sta_rank.df$`40`, method = "spearman")
+cor.test(sta_rank.df$`30`, sta_rank.df$`40`, method = "spearman")
+
+
+# finally try also for the combined data of exponential & stationary phase
+cor.test(ranks_acrossInoc.df$`25`, ranks_acrossInoc.df$`40`, method = "spearman")
+cor.test(ranks_acrossInoc.df$`30`, ranks_acrossInoc.df$`40`, method = "spearman")
+```
+
+
+
+```{r, rankorder_ambientVSextreme_subset4sp}
+# use Spearman’s Rank Correlation Coefficient to test for correlation between ambient and extreme
+################################
+# consider the 4 SPECIES that do not change their rank order
+################################
+# first, exponential phase:
+cor.test(exp4SP_rank.df$`25`, exp4SP_rank.df$`40`, method = "spearman")
+cor.test(exp4SP_rank.df$`30`, exp4SP_rank.df$`40`, method = "spearman")
+
+# then stationary phase
+cor.test(sta4SP_rank.df$`25`, sta4SP_rank.df$`40`, method = "spearman")
+cor.test(sta4SP_rank.df$`30`, sta4SP_rank.df$`40`, method = "spearman")
+
+# finally check the combined data for both inocula
+cor.test(acrossInoc_4SP_rank$`25`, acrossInoc_4SP_rank$`40`, method = "spearman")
+cor.test(acrossInoc_4SP_rank$`30`, acrossInoc_4SP_rank$`40`, method = "spearman")
+
+
+
+################################
+# try the exact 4 STRAINS used in Expt 2
+################################
+# first, exponential phase:
+cor.test(exp4STR_rank.df$`25`, exp4STR_rank.df$`40`, method = "spearman")
+cor.test(exp4STR_rank.df$`30`, exp4STR_rank.df$`40`, method = "spearman")
+
+# then stationary phase
+cor.test(sta4STR_rank.df$`25`, sta4STR_rank.df$`40`, method = "spearman")
+cor.test(sta4STR_rank.df$`30`, sta4STR_rank.df$`40`, method = "spearman")
+
+# finally check the combined data for both inocula
+cor.test(acrossInoc_4STR_rank$`25`, acrossInoc_4STR_rank$`40`, method = "spearman")
+cor.test(acrossInoc_4STR_rank$`30`, acrossInoc_4STR_rank$`40`, method = "spearman")
+
+# clean up
+rm(exp_rank.df, exp4STR_rank.df, exp4SP_rank.df, sta_rank.df, sta4SP_rank.df, sta4STR_rank.df, acrossInoc_4SP_rank, acrossInoc_4STR_rank, ranks_acrossInoc.df)
+```
+
+Here we see no significant effects for either all 6 species (p $\approx$ 0.5) or the subset of 4 species (p $\approx$ 0.2). The rho value is smaller for all 6 species and suggestively larger for the subset of 4 species... But definitely not significant, especially when we take into account that the Bonferroni-corrected $\alpha$'s should be something like $0.05/4=0.0125$.
+
+One problem with the parametric approach and 40C is that most of the specie cannot grow (growth rate = 0). This creates a bunch of ties in the rank order of these species (and that's why R is complaining above that it can't give us a good p-value). In short, we may be under-powered? (...but maybe that's just going to be inevitable when you have 0's).
+
+Maybe using a parametric approach can help us squeeze a bit more power out of our data???
 
 ```{r, growthrates_slowfast_&_resistance}
 resist_mu <- Dil_growthrates.df %>% select(Sample, Species, Temp, Inoculum, mu) %>%
@@ -1675,7 +1776,15 @@ efronRSquared(residual = tmp_resist_CFU$resid,
 rm(tmpLMM_CFU_30, tmp_resist_CFU)
 ```
 
-The growth rate at "ambient" temperatures (25C or 30C) does not predict the growth rate at extreme temperature (40C). Neither does it predict the relative CFUs at extreme temperature... Although as the effect size for 30C is almost significant. Probably as the "ambient" temperature gets closer to the "extreme stress" temperature, there's going to be better agreement in the data.
+The growth rate at "ambient" temperatures (25C or 30C) does not predict the growth rate at extreme temperature (40C). Neither does it predict the relative CFUs at extreme temperature...
+
+The effect size of growth rate at 30C is almost significant in predicting relative CFU at 40C. I say "almost" because we need to Bonferroni correct for multiple testing (e.g., of both 25C and 30C ambient temperatures but probably also for mu and relative CFU). This means that -- at the very least -- our Bonferroni-corrected $\alpha = 0.05/2$. So it's not quite over that threshold. 
+
+Probably as the "ambient" temperature gets closer to the "extreme stress" temperature, there's going to be better agreement in the data.
+
+### Which hot temperture has lower mu?
+
+Again we can use a two-sided Wilcoxon signed rank test to check that growth rates are indeed significantly lower at 40C for all species.
 
 # Plot weird 40C growth by P. protegens
 
@@ -1753,8 +1862,14 @@ ggplot(temp_data_for_plotting,
   geom_line(alpha=0.5) +
   labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)")
 
+#########################
+# for comparison, plot P. grimontii
+#########################
+
+
+
 # clean up
-rm(temp_data_for_plotting, test, these_grew)
+rm(temp_data_for_plotting, temp, these_grew)
 ```
 
 # Plot intraspecific density dependence of growth rate
