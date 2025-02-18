@@ -1784,7 +1784,33 @@ Probably as the "ambient" temperature gets closer to the "extreme stress" temper
 
 ### Which hot temperture has lower mu?
 
-Again we can use a two-sided Wilcoxon signed rank test to check that growth rates are indeed significantly lower at 40C for all species.
+Again we can use either a paired t-test or a two-sided Wilcoxon signed rank test to check that growth rates are indeed significantly lower at 40C for all species.
+
+First let's try the paired t-test because growth rates are continuous so, if they are also Normally distributed, then this will be more appropriate.
+
+```{r, growthrate_signif_temp}
+growthrates_40vs35 <- Dil_growthrates.df %>% filter(Temp > 30) %>%
+                        select(Sample, Temp, Inoculum, mu) %>% 
+                          pivot_wider(names_from = Temp,
+                                      names_glue = "{.value}{Temp}",
+                                      values_from = mu) %>%
+                            mutate(diff = mu35 - mu40)
+
+# check for normality using the shapiro-wilk test
+shapiro.test(growthrates_40vs35$diff)
+# looks like the data is not normal... weeellll, the shapiro-wilk test is quite sensitive and a t-test should anyway be quite robust to violations from Normality...
+
+# go ahead and run the paired t-test anyway
+with(growthrates_40vs35, t.test(x = mu35, y = mu40, paired = TRUE))
+
+# and for good measure, also run the two-sided Wilcoxon signed rank test
+with(growthrates_40vs35, wilcox.test(x = mu35, y = mu40, paired = TRUE))
+
+# clean up
+rm(growthrates_40vs35)
+```
+
+Rather predictably, our growth rates data at 35C and 40C failed the statistical test of Normality. I rationalized that the t-test should be quite robust to violations and I went ahead it ran it along with the non-parametric test. As expected, both are significant.
 
 # Plot weird 40C growth by P. protegens
 
