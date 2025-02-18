@@ -837,27 +837,28 @@ ggplot(filter(ALL_data.df, Sample == "Pseudomonas protegens Pf5 - mTourquoise", 
   geom_line() +
   geom_hline(yintercept =  0.05) +
   theme(legend.position = "none") +
-  labs(title="P. protegens, Stationary, 25C, TTDCutoff = 0.05", x="Time (hrs)", y="A600 (corrected O.D.)") 
+  labs(title="P. protegens, Stationary, 25C, TTDCutoff = 0.05", x="Time (hrs)", y="A600 (baselined OD)") 
 
-for(phase in unique(ALL_data.df$Inoculum)){
- for(smpls in levels(ALL_data.df$Sample)[levels(ALL_data.df$Sample) != "BLK"]){
-   for(temps in unique(ALL_data.df$Temp)) {
-      temp_data_for_plotting <- ALL_data.df %>% 
-                                  filter(Inoculum == phase,
-                                         Sample == smpls,
-                                         Temp == temps)
-      plot <- ggplot(temp_data_for_plotting,
-                     aes(y = baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
-              scale_y_log10() +
-              geom_line() +
-              geom_hline(yintercept =  0.05) +
-              theme(legend.position = "none") +
-              labs(title = paste0(phase, " at ", temps, "*C, ", smpls),
-                   x="Time (hrs)", y="A600 (corrected O.D.)")
-      print(plot)
-   }
- }
-}
+# it's possible to plot all the data by uncommenting the following block of code:
+#for(phase in unique(ALL_data.df$Inoculum)){
+# for(smpls in levels(ALL_data.df$Sample)[levels(ALL_data.df$Sample) != "BLK"]){
+#   for(temps in unique(ALL_data.df$Temp)) {
+#      temp_data_for_plotting <- ALL_data.df %>% 
+#                                  filter(Inoculum == phase,
+#                                         Sample == smpls,
+#                                         Temp == temps)
+#      plot <- ggplot(temp_data_for_plotting,
+#                     aes(y = baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
+#              scale_y_log10() +
+#              geom_line() +
+#              geom_hline(yintercept =  0.05) +
+#              theme(legend.position = "none") +
+#              labs(title = paste0(phase, " at ", temps, "*C, ", smpls),
+#                   x="Time (hrs)", y="A600 (baselined OD)")
+#      print(plot)
+#   }
+# }
+#}
 
 # clean-up
 rm(data.blanks, medianOD, plot, temp_data_for_plotting, phase, smpls, temps)
@@ -950,7 +951,7 @@ ggplot(tempdf,
   geom_hline(yintercept =  TTDcutoff.low, col="blue") +
   geom_vline(xintercept =  tempdf.Time, col="red") +
   theme(legend.position = "none") +
-  labs(title="Sanity check of TTD loess (kernal-smoothing)", x="Time (hrs)", y="A600 (corrected O.D.)") 
+  labs(title="Sanity check of TTD loess (kernal-smoothing)", x="Time (hrs)", y="A600 (baselined OD)") 
 rm(tempdf, tempdf.Time)
 
 # initialize an empty data.frame for storage
@@ -977,7 +978,7 @@ ggplot(tempdf,
   #xlim(0,5) +
   geom_hline(yintercept =  TTDcutoff.low, col="blue") +
   theme(legend.position = "none") +
-  labs(title="Checking growth curves with TTD 0.05=NA", x="Time (hrs)", y="A600 (corrected O.D.)")
+  labs(title="Checking growth curves with TTD 0.05=NA", x="Time (hrs)", y="A600 (baselined OD)")
 
 
 ggplot(tempdf[which(tempdf$baselinedOD > TTDcutoff.low),],
@@ -986,7 +987,7 @@ ggplot(tempdf[which(tempdf$baselinedOD > TTDcutoff.low),],
   geom_line() +
   geom_hline(yintercept =  TTDcutoff.low, col="blue") +
   geom_hline(yintercept =  0.13, col="red") +
-  labs(title="Check NA growth curves with TTD threshold=0.05", x="Time (hrs)", y="A600 (corrected O.D.)")
+  labs(title="Check NA growth curves with TTD threshold=0.05", x="Time (hrs)", y="A600 (baselined OD)")
 
 # let's repeat the TTD value calculation for slightly higher TTD cutoff where all growth curves can be included
 
@@ -1015,7 +1016,7 @@ ggplot(tempdf,
   #xlim(0,5) +
   geom_hline(yintercept =  TTDcutoff.hi, col="red") +
   theme(legend.position = "none") +
-  labs(title="Check NA growth curves with TTD threshold=0.13", x="Time (hrs)", y="A600 (corrected O.D.)")
+  labs(title="Check NA growth curves with TTD threshold=0.13", x="Time (hrs)", y="A600 (baselined OD)")
 
 # check for agreement in the growth rates estimated by the 2 thresholds
 ggplot(TTD.df, aes(x=TTD_0.05, y=TTD_0.13)) +
@@ -1028,8 +1029,8 @@ ggplot(TTD.df, aes(x=TTD_0.05, y=TTD_0.13)) +
 summary(lm(TTD.df$TTD_0.13 ~ TTD.df$TTD_0.05))
 
 # save this intermediate data to output for reproducibility & easy loading in downstream analyses
-save(ALL_data.df, TTD.df,
-     file="all_growthcurve_data.RData")
+#save(ALL_data.df, TTD.df,
+#     file="all_growthcurve_data.RData")
 
 #clean up
 rm(curve, detect_t, tempdf, TTDcutoff.hi, TTDcutoff.low)
@@ -1044,7 +1045,7 @@ Below we can see that although bigger values are systematically estimated for TT
 Before we combine the TTD data with the inoculum sizes from the CFU data, let's convince ourselves that these two types of data are generally in agreement with one another. Use the data from both the higher and the lower TTD cutoffs as a binary indicator of growth (i.e., if we failed to find you at both cutoffs, then we assume that you didn't grow at all). AKA survival at different temperatures. Then we will compare the binary indicator of growth with whether growth was observed or not by CFU.
 
 ```{r, survival_fromCurves}
-load("all_growthcurve_data.RData")
+#load("all_growthcurve_data.RData")
 
 binary_survival <- TTD.df %>% filter(Temp > 25)
 
@@ -1102,7 +1103,7 @@ Batch culture and CFU data are not exactly the same but they tend to be in good 
 
 Next we will combine the estimated inoculum sizes with the TTD data in order to infer the growth rate.
 
-```{r, growthcurves_growthrate_from_TTD}
+```{r, growthcurves_growthrate_from_TTD, warning=FALSE}
 # calculate the concentration of the cryostocked inoculum in the absence of stress (i.e, 28*C)
 inoc_data <- CFUraw_inocula %>% filter(Temp == 28) %>% select(-Temp) %>%
             mutate(Concentration = CFU/Vol_Plated_mL * 1/Dilution_Counted)
@@ -1854,7 +1855,7 @@ ggplot(temp_data_for_plotting,
   facet_wrap(vars(Temp)) +
   scale_y_log10(limits=c(0.005,1.1)) +
   geom_line(alpha=0.5) +
-  labs(x="Time (hrs)", y="A600 (corrected O.D.)")
+  labs(x="Time (hrs)", y="A600 (baselined OD)")
 
 # wells that failed to grow seemed to have had condensation early on
 # this obscures the information we are trying to present so let's try to exclude all wells that failed to grow
@@ -1867,7 +1868,7 @@ ggplot(temp_data_for_plotting %>% filter(uniqID %in% these_grew),
   facet_wrap(vars(Temp)) +
   scale_y_log10(limits=c(0.005,1.1)) +
   geom_line(alpha=0.5) +
-  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)")
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)", title="P. protegens")
 
 #########################
 # for comparison, plot P. veronii
@@ -1886,13 +1887,25 @@ ggplot(temp_data_for_plotting,
   facet_wrap(vars(Temp)) +
   scale_y_log10(limits=c(0.005,1.5)) +
   geom_line(alpha=0.5) +
-  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)")
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)", title="P. veronii")
 
 #########################
 # for comparison, plot P. grimontii
 #########################
 
-
+temp_data_for_plotting <- rbind(smoothed_ALL.df %>% 
+                                  filter(Species == "P. grimontii",
+                                         !is.na(TTD_0.05)),
+    # replicates at 40C were excluded from TTD so need to add them back in manually for plotting
+                                smoothed_ALL.df %>% 
+                                    filter(Species == "P. grimontii",
+                                           Temp == 40))
+ggplot(temp_data_for_plotting,
+       aes(y = smth_baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
+  facet_wrap(vars(Temp)) +
+  scale_y_log10(limits=c(0.005,1.5)) +
+  geom_line(alpha=0.5) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)", title="P. grimontii")
 
 # clean up
 rm(temp_data_for_plotting, temp, these_grew)
@@ -1900,4 +1913,56 @@ rm(temp_data_for_plotting, temp, these_grew)
 
 # Plot intraspecific density dependence of growth rate
 
+Estimate the per capita derivative of total biomass. This will allow us to see the intraspecific density dependence of growth rate over time in the batch cultures.
 
+```{r, percap_deriv, eval=FALSE}
+# we've already run the de-noising of the data when we plotted the growth curves above.
+derivs.df <- smoothed_ALL.df %>% mutate(percap_deriv = calc_deriv(y = smth_baselinedOD,
+                                                                  x = Time,
+                                                                  subset_by = uniqID,
+                                                                  percapita = TRUE,
+                                                                  blank = 0,
+                                                                  window_width_n = 5))
+  
+# save this intermediate data to output for reproducibility & easy loading in downstream analyses
+save(ALL_data.df, TTD.df, Dil_growthrates.df, derivs.df,
+     file="all_growthcurve_data.RData")
+```
+
+```{r, plot_percap_deriv}
+load("all_growthcurve_data.RData")
+
+
+for(sam in c("BSC001", "BSC005", "BSC019", "CK101")){
+  for(deg in c(25, 30, 35, 40)){
+    print(ggplot(derivs.df %>% filter(Sample == sam,
+                            Temp == deg,
+                            baselinedOD > 0.02,
+                            baselinedOD < 0.6),
+        aes(x=baselinedOD, y=percap_deriv, colour=as.factor(Inoculum), group = uniqID)) +
+        # plot the 95% CI of the intrinsic growth rates as a ribbon
+        geom_ribbon(aes(ymin=Dil_growthrates.df$mu_lwrCI[which(Dil_growthrates.df$Sample == sam & Dil_growthrates.df$Temp == deg & Dil_growthrates.df$Inoculum == "Exponential")],
+                        ymax=Dil_growthrates.df$mu_uprCI[which(Dil_growthrates.df$Sample == sam & Dil_growthrates.df$Temp == deg & Dil_growthrates.df$Inoculum == "Exponential")]),
+                        fill = "#fccecb", colour = NA) +
+        # plot the 95% CI of the intrinsic growth rates as a ribbon
+        geom_ribbon(aes(ymin=Dil_growthrates.df$mu_lwrCI[which(Dil_growthrates.df$Sample == sam & Dil_growthrates.df$Temp == deg & Dil_growthrates.df$Inoculum == "Stationary")],
+                        ymax=Dil_growthrates.df$mu_uprCI[which(Dil_growthrates.df$Sample == sam & Dil_growthrates.df$Temp == deg & Dil_growthrates.df$Inoculum == "Stationary")]),
+                        fill = "#b0fdff", colour = NA) +
+        # add a vertical line for the threshold of detection (0.05) 
+        geom_vline(xintercept = 0.05) +
+        # plot the derivatives as lines
+        geom_line(alpha=0.4) +
+        # and plot the intrinsic growth rate estimates from the TTD as dashed lines
+        geom_hline(yintercept = Dil_growthrates.df$mu[which(Dil_growthrates.df$Sample == sam & Dil_growthrates.df$Temp == deg & Dil_growthrates.df$Inoculum == "Exponential")],
+                   linetype="dashed", colour="#f8766d") +
+        geom_hline(yintercept = Dil_growthrates.df$mu[which(Dil_growthrates.df$Sample == sam & Dil_growthrates.df$Temp == deg & Dil_growthrates.df$Inoculum == "Stationary")],
+                   linetype="dashed", colour="#00bfc4") +
+        labs(title=paste(unique(Dil_growthrates.df$Species[which(Dil_growthrates.df$Sample == sam)]),
+                         deg,"*C"),
+             colour="Inoculum",
+             x = "Total Biomass (OD at 600nm)",
+             y = "Per Capita Derivative"))
+  }
+}
+
+```
