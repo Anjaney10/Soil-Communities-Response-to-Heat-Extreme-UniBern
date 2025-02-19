@@ -10,7 +10,7 @@ Abstract coming soon.
 
 This GitHub repository was created to facilitate the reproducibility of the scientific article listed above.
 
-The pre-print manuscript will be available ... shortly. The Overleaf draft of the manuscript can be found [at this link](https://www.overleaf.com/read/gjcsgrwrxjqd#e486cc).
+The pre-print manuscript will be available ... shortly.
 
 The complete protocols, data, and analysis for the manuscript can be found here. The raw flow cytometry data can be found at ???this_link??? ... available shortly.
 
