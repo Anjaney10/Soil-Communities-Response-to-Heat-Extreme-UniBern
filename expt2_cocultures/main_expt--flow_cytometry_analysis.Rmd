@@ -1,7 +1,7 @@
 ---
-title: "Resistance & recovery 4-sp community: Analyze 5/5 data"
+title: "Resistance & recovery 4-sp communities: Analyze flow cytometry data"
 author: "Hermina"
-Date: "2024-10-02"
+Date: "2025-02-19"
 output:
   html_document:
     df_print: paged
@@ -18,79 +18,20 @@ editor_options:
 
 # Introduction
 
-This document is updated from `analyze_temp_serial_transfer_expt--16July24.Rmd`.
+This document is updated from `analyze_temp_serial_transfer_expt--28Oct24.Rmd`.
 
 There are 5 treatments: no heat (5 days serial transfer), 6h heat, 12h heat, 24h heat, and
 48h heat. Each of these is setup with 5 technical replicates that was initially inoculated
-to about equal ratios. I was hoping to have two batch replicates but in the end Maddy
-decided it was best to have just 1 batch replicate.
+to about equal ratios (on Day 0).
 
 Summary of choices: Based on the number of cells observed in true blank wells, I only
-include data from wells with \>50 cells. Maybe also the stuff below: Based on controls, a
-misclassification rate of 1% is assumed. This means that Contaminated time-series are
-removed from the data.
+include data from wells with \>50 cells. Based on the flow cytometry data from Day 0 (which is estimated from the blanks in the OD data to have never experienced any contamination events), a
+misclassification rate of 1% is assumed. Contaminated replicates are
+defined as having a substantially higher % of a species that was not inoculated in that well (i.e., than expected from this misclassification rate). When a contaminated well was detected, all time points associated with that well were removed from the data.
 
-## To do
+# Load & Annotate Data
 
-xx load the fluorescence data
-
-xx label the fluorescence data
-
-xx generate a uniqID that is consistent across time points
-
-xx average the Day0 replicates
-
-xx produce figures to summarize the Day0 variation between measurements
-
-xx produce a table summarizing the misclassification rate for each species
-
-xx set a threshold for minimum total counts in a well as determined from true well blanks
-
-xx distinguish extinct wells from true NA wells using OD data
-
-o FOR 24-07-02 INNOCULUM: try to load the .fcs files back into the Attune software to
-extract the missing Volumes
-
-o FOR AUGUST SAMPLES ONLY: systematically re-check the contaminated/miscalled replicates
-at 1% threshold
-
-o take some representative screenshots for contamination and for miscalled events
-
-o also take some representative screenshots of the gating strategy
-
-o produce a figure to illustrate miscall/contamination exclusion strategy (Can use a more
-lenient & a more stringent strategy)??
-
-o use machine learning to classify cells \<-- I can use the pilot data and the monoculture
-data as training data??
-
-xx plot the relative densities
-
-xx load the volume data
-
-xx plot the absolute densities
-
-xx plot each sample as a time series
-
-o Diversity vs effect size: get signif for log(Total+1)
-
-o how much correlation is there between total density estimate by Flow vs by OD?
-
-o check to see if the Diversity vs total effect size trend also happens for the OD data
-
-(o if it does, then I will have to double-check that OD is linear with CFU in the range
-used here)
-
-o Diversity vs effect size: investigate heat duration as numeric instead of factor. To do
-this, check out the paper that Maddy sent along.
-
-o also run the analysis that Eric Allen mentioned at Lynn Govaert's seminar
-
-o fit a model to the time-series data
-
-# Pre-Process Data
-
-Load in the fluorescence and OD datasets. Annotate the data.
+After loading the environment, I will load all of the flow cytometry cell count data and information about extinct wells from the OD data. Data is also annotated.
 
 ```{r, loadEnv}
 library(tidyverse)
@@ -109,6 +50,9 @@ library(partitionBEFsp) # for paritioning the biodiversity effects
 library(ape) # for ordination (PCoA) <-- this isn't actually used for any analysis
 library(ggordiplots) # for ggplotting ellipses around treatment group centroids during ordination
 
+# print the complete info about packages and versions currently loaded in the environment:
+sessionInfo()
+
 # set theme for all plots
 fave_theme <- theme_light() + # see other options at https://ggplot2.tidyverse.org/reference/ggtheme.html
               theme(text = element_text(size=15), # larger text size for titles & axes
@@ -117,11 +61,18 @@ fave_theme <- theme_light() + # see other options at https://ggplot2.tidyverse.o
 theme_set(fave_theme)
 
 # define a palette for plotting the 4 species
-species_pal = brewer.pal(9, "Set1")[c(1, 3, 7, 4, 2, 5)] # this is all 6 colours matching with the slide colours
-species_pal_only4 = species_pal[c(1,4:6)] # this is the 4 focal strains in alphabetical order
+species_4pal_alphabetical = palette.colors(8, palette = "R4")[c(3, 5, 7, 2)] #in alphabetical order
+species_4pal_speed = palette.colors(8, palette = "R4")[c(7, 5, 3, 2)] #from fast to slow
 
+#### THIS NEEDS TO BE UPDATED BELOW!!!
 # define a palette for plotting the 3 treatment days
 trtmt_pal = brewer.pal(4, "Set2")[c(1,3:4)]
+
+# define a palette for plotting the heat duration
+control_to_48h_pal <- scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9)
+
+# define a palette for plotting the inoculated community richness
+CommRich_pal <- scale_colour_viridis_d(option = "viridis", begin=0.2, end=0.95)
 
 # define a function to find the mode of a vector. Credit to https://stackoverflow.com/questions/2547402/how-to-find-the-statistical-mode
 Mode <- function(x) {
@@ -130,8 +81,8 @@ Mode <- function(x) {
 }
 ```
 
-Load the fluorescent data from the summary Excel files created by FCS Express. Then load
-the volume data from the summary .csv files created by the Attune software.
+Load the cell counts data from the summary Excel files created by FCS Express. Then load
+the well volume data from the summary .csv files created by the Attune software.
 
 ```{r, loadData}
 # a function to load the fluorescent counts data (from .xlsx files created by )
@@ -186,10 +137,10 @@ import_from_files <- function(dir_vector){
 }
 
 # get all of the raw data:
-list_rawdata <- import_from_files(c("./2July24", "./8July24", "./5Aug24", "./19Aug24"))
+list_rawdata <- import_from_files(c("./data/serial_transf--2July24", "./data/serial_transf--8July24", "./data/serial_transf--5Aug24", "./data/serial_transf--19Aug24"))
 ```
 
-Now we can process the data to create unique ID's for each sample. All of this info needs
+Now we can process the data to create unique ID's for each sample. This info needs
 to be parsed from the Filename column for the flow counts data (i.e., excel files) and
 from the Plate column for the flow volumes data (i.e., csv files).
 
@@ -253,7 +204,8 @@ raw_data$Count_veronii <- as.numeric(raw_data$Count_veronii)
 
 Finally, we can annotate the data with the sample information for each well. Note that
 there are different plate layouts for Day0 (same for all dates) And the experiment from
-24-07-02 uses a different layout as compared to the rest of the data... But, also, I make
+24-07-02 uses a different layout as compared to the rest of the data (see the layout png file in the corresponding data subfolder).
+...But, also, I made
 other mistakes too so there's modified layouts for that too! XP
 
 ```{r, annotateData}
@@ -380,27 +332,6 @@ annotate_samples <- function(layout, select_date, select_plate) {
     output_df$Plate <- select_plate
   }
 
-#I THINK NONE OF THIS IS NEEDED ANYMORE!!!  
-#  # create annotation for the blank wells
-#    # grab inoculated species from the layout df
-#  blank_annot <- layout %>% filter(CommRich==0)
-#    # grab plate annotation from the data file
-#  blank_data <- relevant_data %>%
-#                  select(-Well, -Count_putida, -Count_protegens, -Count_grimontii, -Count_veronii, -Volume) %>%
-#                    distinct()
-#    # outer join these 2 df's
-#  blank_annot <- merge(blank_annot, blank_data) %>%
-#                  # add missing columns as NA values
-#                  mutate(Count_putida=NA, Count_protegens=NA, Count_grimontii=NA, Count_veronii=NA, Volume=NA)
-#  
-#  # combine the annotated data with the annotated blanks
-#  output_df <- rbind(output_df, blank_annot)
-#  
-#  # sometimes I have flow data from real well blanks. i.e., these have real Counts != NA
-#  # this will produce redundant rows where the Counts == NA
-#  # due to the rbind above, these redundant rows will always appear lower down in output_df
-#  output_df <- output_df[!duplicated(output_df %>% select(Well, Day, Heat)),]
-
   return(output_df)
   rm(relevant_data, output_df)#, blank_annot, blank_data)
 }
@@ -465,7 +396,7 @@ rm(layout.inocula, layout.plate1, layout.plate1_2Jul, layout.plate1_8Jul, layout
 The annotated data contains information on the complete dataset, including blank wells and
 excluded wells. Any mistakes there were made during inoculation on Day 0 have been removed
 altogether. `CommRich == 0` indicates well blanks that should be empty (in this case, all
-4 species columns will also be `== 0`). Finally, `CommRich == NA` indicates data rows that
+4 species columns will also be `0`). Finally, `CommRich == NA` indicates data rows that
 were excluded; e.g., due to low total counts or contamination (in this case, the 4 species
 columns will be kept to indicate what should have been in that excluded well).
 
@@ -590,7 +521,7 @@ write.csv(rbind(annot.days, annot.innoc), file="./flow_rawdata.csv", quote=FALSE
 rm(annotated.rawdata, temp_metainnoc, innoc_meta)
 
 ########
-# fix annotation mistake for uniqID "24-07-02 Epoch A6"
+# fix annotation mistake for flow cytometry acquisition of uniqID "24-07-02 Epoch A6"
 # this well is missing on Day 1 bc A8 was pipetted there instead. But now we have 2 wells for "24-07-02 Epoch A8"...
 ########
 wrong_row <- which(annot.days$uniqID == "24-07-02 Epoch A8" & annot.days$Day == 1 & is.na(annot.days$Volume))
@@ -605,13 +536,12 @@ rm(wrong_row)
 ```
 
 The data from Day 0 (`annot.innoc`) is 3x measurements of the innoculum that is used to
-inoculate the up to 5 batch replicate time-series. For the summary annotation file (aka
+inoculate the 5 replicates. For the summary annotation file (aka
 metadata above), each `FLOWplateWell` appears redundantly with the up to 5 associated
 uniqID and OD_well replicates. I chose to do this so that the raw values from the flow
 cytometry data are preserved with their relevant annotation.
 
-Below, this Day 0 data is averaged across the 3 different `FLOWplateWell` values. This
-adds the Day 0 data to the time series.
+Below, this Day 0 data is averaged across the 3 different `FLOWplateWell` values. This mean that below Day 0 is now joined with the rest of the data in the variable `annotated.rawdata`.
 
 ```{r, Day0}
 # average the Day0 data actually across its redundant flow cytometery measurements...
@@ -637,7 +567,7 @@ plotting_mean.innoc <- mean.innoc %>% pivot_longer(cols = Mean_putida:SD_veronii
 ggplot(plotting_mean.innoc,
        aes(x=Mean, y=SD, colour=species)) +
   geom_point(alpha=0.7) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_alphabetical) +
   labs(title="3 measures of innoculum")
 
 ggplot(plotting_mean.innoc,
@@ -648,7 +578,7 @@ ggplot(plotting_mean.innoc,
 ggplot(plotting_mean.innoc %>% mutate(CV = SD/Mean),
        aes(x=Mean, y=CV, colour=species)) +
   geom_point(alpha=0.7) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_alphabetical) +
   labs(title="3 measures of innoculum")
 
 # due to false positive counts,
@@ -661,14 +591,14 @@ ggplot(plotting_mean.innoc %>% filter((putida == 1 & species == "putida") |
             mutate(CV = SD/Mean),
        aes(x=Mean, y=CV, colour=species)) +
   geom_point(alpha=0.7) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_alphabetical) +
   labs(title="3 measures of innoculum (remove absent sp)")
 
 ggplot(plotting_mean.innoc %>% unite("community", putida:veronii),
        aes(x=community, y=Mean, colour=species)) +
   geom_point(alpha=0.7) +
   geom_errorbar(aes(ymin=Mean-SD, ymax=Mean+SD), width=.2) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_alphabetical) +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   labs(title="3 measures of innoculum")
 
@@ -680,7 +610,7 @@ ggplot(plotting_mean.innoc %>% filter((putida == 1 & species == "putida") |
        aes(x=community, y=Mean, colour=species)) +
   geom_point(alpha=0.7) +
   geom_errorbar(aes(ymin=Mean-SD, ymax=Mean+SD), width=.2) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_alphabetical) +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   labs(title="3 measures of innoculum (remove absent sp)")
 
@@ -693,7 +623,7 @@ ggplot(plotting_mean.innoc %>% ungroup() %>%
             unite("community", putida:veronii) %>% mutate(CV = SD/Mean),
        aes(x=community, y=CV, colour=species)) +
   geom_jitter(width=0.2, alpha=0.7) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_alphabetical) +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   labs(title="3 measures of innoculum (remove absent sp)")
 
@@ -714,6 +644,12 @@ rm(annot.days, annot.innoc, plotting_mean.innoc)
 ```
 
 ## Misclassification rate: estimated from innocula (Day 0)
+
+I define the misclassification rate as
+$\frac{\text{false positive events}}{\text{total events across all fluorescences}}$. In
+other words, I am counting the number of events in the gate(s) where I know there should
+be zero then dividing by the total number of fluorescent events in that well.
+ To estimate the misclassification rate, I use the data from Day 0.
 
 ```{r, misclassification_est}
 # use Day0 innoculum measurements for a first pass at estimating the misclassification rate
@@ -741,7 +677,7 @@ misclass.innoc$species <- factor(misclass.innoc$species,
 ggplot(misclass.innoc, aes(x=species, y=mean_rate, colour=species)) +
   geom_beeswarm(alpha=0.5) +
   geom_errorbar(aes(ymin=mean_rate-sd_rate, ymax=mean_rate+sd_rate), width=.05, alpha=0.2) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_speed) +
   labs(title="misclassification rate in innoculum", y="mean +/- SD")
 
 max(misclass.innoc$mean_rate)
@@ -751,7 +687,7 @@ ggplot(misclass.innoc %>% unite("community", putida:veronii),
   facet_wrap(vars(community)) +
   geom_point(alpha=0.5) +
   scale_y_continuous(breaks = c(0, 0.005, 0.01)) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_speed) +
   theme(axis.text.x = element_text(angle = 90)) +
   labs(title="misclassification rate in innoculum")
 
@@ -762,10 +698,6 @@ misclass.innoc %>% group_by(species) %>% summarise(mean_misclass = mean(mean_rat
 rm(misclass.innoc, mean.innoc)
 ```
 
-I define the misclassification rate as
-$\frac{\text{false positive events}}{\text{total events across all fluorescences}}$. In
-other words, I am counting the number of events in the gate(s) where I know there should
-be zero then dividing by the total number of fluorescent events in that well.
 
 From here we can clearly see that the misclassification rate can be as bad as 1% and that
 it depends on the species. Protegens is the most likely to be misclassified and, from the
@@ -777,13 +709,9 @@ So I don't think it makes sense to correct the data using the exact values given
 The more cautious approach would be to treat with caution any counts that are less than
 1%.
 
-*QUESTION:* do I need a plot of the mean fluorescence value for different species on
-different days? I think I would like to see this... Which means that I will need to go
-back to the FCS Express data to extract it. :(
-
 # Data Processing
 
-Here we begin to make decisions about which data to keep and which to toss.
+Here we make decisions about which data to keep and which to toss.
 
 ## Minimum Number of Events
 
@@ -940,9 +868,9 @@ rm(check)
 I have calculated the relative densities and made sure that all relative densities add up
 to 1.
 
-## Visualize time-series
+## Plot preliminary time-series
 
-Before diving deeper into the data, let's just see quickly what the time series look like.
+Before diving deeper into the data, let's just see quickly what the time series look like:
 
 ```{r, prelimTimeSeries}
 # check: is each replicated time series annotated appropriately so that it can be pieced together?
@@ -955,7 +883,7 @@ for(com in unique(the.data$community)) {
     facet_grid(~Heat) +
     geom_point(alpha=0.2) +
     geom_line(alpha=0.5) +
-    scale_colour_manual(values=species_pal_only4) +
+    scale_colour_manual(values=species_4pal_alphabetical) +
     labs(title=com))
 }
 ```
@@ -964,13 +892,7 @@ After staring at the above time series for long enough, two things become clear
 
 1.  Protegens has contaminated several wells. This is unambiguous contamination when it is
     present in communities where it was not innoculated. For these contaminated
-    replicates, the entire time-series will be excluded from the analysis.\
-    \
-    (But this also brings up the danger of contamination in wells where that species *was
-    already* inoculated: e.g., putida could be an example of this in community 1_1_1_0 on
-    day 4 under 12 hrs heat, corresponding with uniqID `24-08-05 Epoch A5`. Here, putida
-    goes to low density except for on the final day in just one replicate. We have
-    absolutely no way to know if this is a true signal or contamination.)
+    replicates, the entire time-series will be excluded from the analysis.
 
 2.  The misclassification rate varies over time: e.g., putida is misclassified in a
     protegens monoculture (0_1_0_0) on day 1 for 3 different heat treatments. It appears
@@ -999,10 +921,9 @@ Of the 87 NA values identified above,
     extinction. There is no flow cytometery data for this well during the recovery period
     because it went extinct. Extinction needs to be confirmed against the OD data.\
     \
-    IN THIS CASE: this is a true NA value during the heat treatment but it should become a
-    0 value during the recovery period.
+    IN THIS CASE: this is a true NA value during the heat treatment **but it should become a 0 value during the recovery period.**
 
-The OD data is analyzed in the file called `OD_temp_serial_transfer_expt--28Oct24.Rmd`.
+The OD data is analyzed in the file called `main_expt--OD_analysis.Rmd`.
 This script outputs a csv file indicating the extinct wells, which I will use below.
 
 ```{r, extinctWells}
@@ -1032,18 +953,12 @@ the.data[which(the.data$uniqID %in% extinct$uniqID & the.data$Day==3),] <- the.d
 rm(extinct)
 ```
 
-## Check for contamination & misclassification rate
+## Distinguish between contamination & misclassification
 
 To address both the problem of contamination & the problem of the misclassification rate
-varying over time, I had to closely re-examine the flow cytometry data. (If I had
-more/longer time-series, I might consider to apply a smoothing to the data... But that
-doesn't make sense here.)
+varying over time, I had to closely re-examine the flow cytometry raw data (which I did by eye, *insert crying emoji*).
 
-Let's first exclude all instances where a species that was not innoculated there is found
-at \>90% relative density. These are unambiguous contamination events and I don't need to
-waste my time scouring through these flow cytometry raw data files.
-
-Let's apply the 1% misclassification rate that was found for Day 0:
+From the Day 0 data, I hypothesized that the misclassification rate is ~1%. So let's pull up the identity of all the flow cytometry data where >1% of the relative density is attributed to a species that was not inoculated in that well (i.e., and therefore it should not be there). I then manually examined the flow cytometry raw data files in FCS Express for all the wells listed below:
 
 ```{r, contaminationANDmisclassification}
 # identify contamination at 1%
@@ -1056,14 +971,11 @@ contamin.df %>% filter(Date %in% c("24-08-05", "24-08-19")) %>% select(Date, FLO
                                                                        relDen_putida, relDen_protegens, relDen_grimontii, relDen_veronii)
 ```
 
-We know from the OD data that on 24h of heat treatment there was no contamination
-detected. (We also know from that same data that on Day 1 of all treatments there's never
-any contamination detected for any treatment.) As the misclassification rate changes with
-environmental conditions, let's use the 24h heat treatment data to look at the
-misclassification rate.
+The gating for all the wells listed above (and more) was double-checked by eye in FCS Express and new cell counts were outputted. It seemed to me that there is a correlation between the heat environment, or at least the day of the serial transfer, and how clean or messy the gating looked. In particular it seemed to me that it was more difficult to classify species during heat days.
 
-IT SHOULD ALSO BE POSSIBLE TO GET THE COVARIANCE RATE in order to estimate which cells it
-is that are being misclassified as which.
+We know from the OD data (see `main_expt--OD_analysis`) that the 24h of heat treatment had no instance of contamination detected (i.e., at least for the blank wells). Since I suspect that the misclassification rate changes with the heat day, let's assume that the 24h heat treatment does not contain any contamination events then look at the occurence of species that were never inoculated in those wells as an estimate of the misclassification rate on different days of the serial transfer.
+
+(In the future: it should also be possible to get a covariance matrix to estimate which species are being misclassified as which.)
 
 ```{r, misclass_24hHeat}
 misclass24 <- the.data %>% filter(Day > 0, Heat == 24) %>%
@@ -1105,21 +1017,20 @@ ggplot(misclass24,
        aes(x=species, y=relDen, colour=species)) +
   facet_wrap(vars(Day)) +
   geom_beeswarm(alpha=0.5) +
-  scale_colour_manual(values=species_pal_only4) +
+  scale_colour_manual(values=species_4pal_alphabetical) +
   theme(axis.text.x = element_text(angle = 90)) +
   labs(y="relative density of misclassified",
        title="misclassification in 24h heat for different days")
 
 
 ```
+Recall that for 24h duration, Day 1 of serial transfer had 6h of extreme heat at the end, Day 2 was all extreme heat then returned to the "ambient" warm temperature only in the last few hours, and Days 3 & 4 were the recovery days with constant "ambient" warm temperature.
 
-# THIS NEEDS TO BE UPDATED:
+What we see from the plot above is that the misclassification rate can get as high as 20% (and that it does depend on the day but it seems that the first day of recovery is actually worse than the heat days themselves), although most replicates & days seem to be well behaved.
 
-Here is a preliminary version of the data with contamination removed. I am making it so
-that I can use the data to fit a preliminary time series model. THIS IS NOT THE FINALIZED
-VERSION OF THE DATA AND WILL NEED TO BE UPDATED!!!!!
+Therefore let's set 25% as the threshold for contamination. This means that any replicates that show >25% relative density for a species that was not inoculated there are defined as contaminated. All time-points from these contaminated replicates are completely removed from the downstream analysis.
 
-```{r, forPlottingCaroline}
+```{r, plot_finalized_timeseries}
 rm(contamin.df) # remove anything we may have had above.
 
 # for now let's define contamination as >25% for something that should not be there.
@@ -1145,7 +1056,9 @@ ggplot(tmp %>% filter(Day==0) %>% select(-uniqID, -OD_well, -Heat, -Incubator) %
 # I lost the data on flow volume for Date 24-07-02.
 # But we see from the plot that there's not *that* much variation between batches.
 
-# let's just assume we had the median volume on Day 0 of 24-07-02
+## IMPORTANT NOTE: the Day 0 data is not featured in any of the downstream analyses for this manuscript. Therefore this interpolation doesn't actually matter.
+
+# let's interpolate the well volumes on Day 0 of 24-07-02 by using the median well volumes for all other dates on Day 0
 tmp.Day0 <- tmp[which(tmp$Day==0 & tmp$Incubator=="Epoch"),] %>% select(-uniqID, -OD_well) %>% distinct()
   # get the median volume for Day 0
 medianVol <- median(tmp.Day0$Volume, na.rm=TRUE)
@@ -1167,18 +1080,6 @@ tmp <- rbind(tmp %>% filter(Date != "24-07-02"),
 
 rm(medianVol, tmp.Day0, tmp.Day0.0702)
 
-for(com in unique(tmp$community)) {
-  plot(ggplot(tmp %>% filter(community==com) %>%
-           select(uniqID, Heat, Day, Conc_putida, Conc_protegens, Conc_grimontii, Conc_veronii) %>%
-              pivot_longer(cols=starts_with("Conc"), names_to="species", names_prefix="Conc_", values_to="absDensity"),
-         aes(x=Day, y=absDensity, colour=species, group=paste(uniqID,Heat,species))) +
-    facet_grid(~Heat) +
-    geom_point(alpha=0.2) +
-    geom_line(alpha=0.5) +
-    scale_colour_manual(values=species_pal_only4) +
-    labs(title=com))
-}
-
 # finally, remove known miscalled estimates from the data
 tmp <- tmp %>% mutate(Conc_putida = putida * Conc_putida,
                       Conc_protegens = protegens * Conc_protegens,
@@ -1187,11 +1088,416 @@ tmp <- tmp %>% mutate(Conc_putida = putida * Conc_putida,
         mutate(Total_density = Conc_putida + Conc_protegens + Conc_grimontii + Conc_veronii)
 
 # output this data to file
-absDensity <- tmp %>% select(uniqID, Heat, Day, Heat_Day, Recov_Day, CommRich:veronii, Total_density:Conc_veronii)
-save(absDensity, file="./TEMPORARY_absdensity_data.RData")
+absDensity <- tmp %>% filter(community != "0_0_0_0") %>%
+                select(uniqID, Heat, Day, Heat_Day, Recov_Day, CommRich:veronii, Total_density:Conc_veronii)
+save(absDensity, file="./absolute_density_data.RData")
 
 rm(tmp, com)
 ```
+
+## Plot final time-series
+
+```{r, plot_finalized_timeseries}
+for(com in unique(absDensity$community)) {
+  plot(ggplot(absDensity %>% filter(community==com) %>%
+           select(uniqID, Heat, Day, Conc_putida, Conc_protegens, Conc_grimontii, Conc_veronii) %>%
+              pivot_longer(cols=starts_with("Conc"), names_to="species", names_prefix="Conc_", values_to="absDensity"),
+         aes(x=Day, y=absDensity, colour=species, group=paste(uniqID,Heat,species))) +
+    facet_grid(~Heat) +
+    geom_point(alpha=0.2) +
+    geom_line(alpha=0.5) +
+    scale_colour_manual(values=species_4pal_alphabetical) +
+    labs(title=com))
+}
+
+# in the analyses below we will be interested in shannon diversity so let's already make a column for that
+absDensity$Diversity <- diversity(absDensity[,c("Conc_putida", "Conc_protegens", "Conc_grimontii", "Conc_veronii")])
+
+# first let's remove the empty wells as we won't need them anymore
+absDensity <- absDensity %>% filter(community != "0_0_0_0")
+# Note that there are many 0 and NA values for Total_density
+summary(absDensity$Total_density)
+# 0's are communities that went extinct altogether and never recovered
+absDensity[which(absDensity$Total_density == 0),]
+# most NA's are communities below the threshold of detection during heat that later perhaps recovered
+absDensity[which(is.na(absDensity$Total_density) & absDensity$Heat>12),]
+# other NA's are just missing data (e.g., due to flow cytometry clogs or just plain pipetting mistakes)
+absDensity[which(is.na(absDensity$Total_density) & absDensity$Heat<12),]
+
+# the total density data will have to be slightly adjusted for fitting to the models
+absDen_forFit <- absDensity %>% filter(Day > 0)
+# for the "raw" total density data that will be fitted via negative binomial GLM,
+  # keep the 0's in the data
+  # but convert NA's into epsilon values (where epsilon is just below the threshold of detection)
+below_threshold_rows <- which(is.na(absDen_forFit$Total_density) & absDen_forFit$Heat>12)
+absDen_forFit$Total_density[below_threshold_rows] <- (0.25*50/146)
+# for the transformed total density data, apply (x + epsilon) transformation to all values EXCEPT those that used to be NA's
+absDen_forFit$TotDen_plusEpsilon <- absDen_forFit$Total_density
+absDen_forFit$TotDen_plusEpsilon[-below_threshold_rows] <- absDen_forFit$TotDen_plusEpsilon[-below_threshold_rows] + (0.25*50/146)
+rm(below_threshold_rows)
+
+# re-arrange the levels of Heat so that emmeans can be run:
+absDen_forFit$Heat <- as.character(absDen_forFit$Heat)
+absDen_forFit$Heat[which(absDen_forFit$Heat == 0)] <- "control"
+# !!! emmeans expects the control to be the very *last* level !!!
+absDen_forFit$Heat <- factor(absDen_forFit$Heat,
+                             levels = c("6", "12", "24", "48", "control"))
+```
+
+After plotting, I also created another version of the full data that will be used for fitting the data to models: ``. It excludes the Day 0 data (as this will not be analyzed hereafter).
+
+Below, I will analyze the diversity and the productivity (AKA total density) to understand how
+they change relative to the no heat control during the resistance and the recovery period.
+The diversity is easier to deal with because we can use the Shannon diversity calculation
+as implemented by `vegan`.
+
+For the total abundances, there are extinction (AKA 0's) and NA events in this data -- the extinction events in particular are important and meaningful parts of our data!! To deal with this issue, I will distinguish between 0's and NA's by using a $x + \epsilon$ transformation, where $\epsilon$ indicates samples that are below the threshold of detection. I will use $\epsilon$ as 0.25 \* the threshold of detection for
+the flow cytometer (which is 50 total fluorescent events in $146\mu L$).
+
+
+# Ordination of communities over time
+
+After backing up a bit and thinking about what the main story of the paper could be, I
+think the main message that I would like to tell with the paper is that heat duration has
+a threshold effect. So while shorter and intermediate heat durations have some effect
+during heat that is different from control, communities return to a similar state after
+recovery. On the other hand, long duration heat events lead to extinction (i.e., either of
+the entire community or of vulnerable species within the community) so the communities
+cannot recover anymore. In other words, there's a threshold effect where the amount of
+heat (or bacterial) induced killing has gone on for so long than it passes a critical
+point and the communities recover to a different state. I don't want to use the term
+"tipping point" but for sure the design of our experiment allows us to use phrases like
+"threshold effect" and "critical transition" *sensu stricto* (e.g., as explained in
+[Munson et al., 2018](https://doi.org/10.1111/nph.15145)).
+
+I think it would be fantastic if I could produce a figure that summarizes the entire data
+in a way that builds an argument for the quintessential ball-landscape schematic that
+people keep showing when they talk about ecosystem stability to perturbation (e.g., see
+schematic in Fig. 2 of [Shade et al., 2012](https://doi.org/10.3389/fmicb.2012.00417) or
+the empirical figure in Fig. 3 of [Jurburg et al.,
+2017](https://doi.org/10.1038/srep45691)).
+
+Here are some tutorials on ordination:
+<https://eddatascienceees.github.io/tutorial-rayrr13/>
+<https://ourcodingclub.github.io/tutorials/ordination/>
+<https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/anosim/>
+<https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/visualizing-and-interpreting-ordinations/>
+
+To calculate the Bray-Curtis dissimilarity, we are forced to choose how to deal with NA values (most of
+which are found in the resistance time points and so it doesn't really make sense to outright drop them). NA
+values exist for two reasons:
+
+1.  "true" missing data where the well was not acquired at all due to technical
+    difficulties/mistakes (only a few of this type). I used interpolation to deal with these: use the median value from other replicates at that same community:day:treatment.
+
+2.  below threshold of detection missing data where the total density was too low to
+    reliably estimate the cell counts. I replace the NA with the limit of detection of the cytometer ("epsilon", as above) and assume equal frequencies of the species that were inoculated in that community.
+    
+Then, if we just follow the example tutorials directly, with columns = four species and rows =
+different communities on different days for different heat treatments, then the data
+simply gets split up by species. But that's not what we want to understand in this case.
+
+We want to understand how the communities are changing over time (and as a function of different heat durations) so let's give it the data
+as species x time. This can be achieved by widening the data so that we have abundances of
+the 4 species during resistance, during early recovery, and during late recovery.
+
+Note that I also had to keep just 3 time points from the control treatment. I chose to keep day 1 (coded as "resistance"), day 3 (coded as "early recovery"), and day 5 (coded as "late recovery") because this way the ordination plot will show the control treatment early, middle, and late in the time series... 
+
+```{r, NMDS_create_wide_matrix}
+# go back to the complete data that includes NA values for all 4 species on some days
+absDen_forOrd <- absDen_forFit %>% select(-Total_density, -Diversity)
+# NA values with Total_density == NA are "true" missing data where I failed to record the flow cytometry measurements on that day due to technical difficulties/mistakes. These can be interpolated by using the median values from the remaining community replicates
+  ## get the median values for all communities, days, and heat treatments
+median_vals <- absDen_forOrd %>% group_by(Heat, Day, community) %>%
+                  summarise(Med_putida = median(Conc_putida, na.rm=TRUE),
+                            Med_protegens = median(Conc_protegens, na.rm=TRUE),
+                            Med_grimontii = median(Conc_grimontii, na.rm=TRUE),
+                            Med_veronii = median(Conc_veronii, na.rm=TRUE))
+  ## get the index for the rows with "true" missing values
+missing_rows <- which(is.na(absDen_forOrd$TotDen_plusEpsilon))
+  ## loop through the missing values
+for(i in missing_rows){
+  # find the interpolation value in the table of median values
+  temp_med_val <- median_vals[median_vals$Heat == absDen_forOrd$Heat[i] &
+                                median_vals$Day == absDen_forOrd$Day[i] &
+                                median_vals$community == absDen_forOrd$community[i],]
+  # replace the NA values with the median values
+  absDen_forOrd$Conc_putida[i] <- temp_med_val$Med_putida
+  absDen_forOrd$Conc_protegens[i] <- temp_med_val$Med_protegens
+  absDen_forOrd$Conc_grimontii[i] <- temp_med_val$Med_grimontii
+  absDen_forOrd$Conc_veronii[i] <- temp_med_val$Med_veronii
+  # clean up
+  rm(temp_med_val)
+}
+# clean up
+rm(median_vals, missing_rows)
+
+# on the other hand, NA values where Total_density is epsilon represent flow cytometry counts that were below the threshold of detection. In this case let's assume 1:1 ratios of inoculated strains at a total density equal to epsilon.
+epsilon <- min(absDen_forOrd$TotDen_plusEpsilon, na.rm=TRUE)
+  ## get the index for the missing value rows below the threshold of detection
+missing_rows <- which(is.na(absDen_forOrd$Conc_putida))
+  ## CommRich NA values were supposed to indicate some differences but that doesn't really matter for us anymore
+absDen_forOrd$CommRich <- absDen_forOrd$putida + absDen_forOrd$protegens + absDen_forOrd$grimontii + absDen_forOrd$veronii
+for(i in missing_rows){
+  # replace the NA values with epsilon divided by the inoculated species richness
+  absDen_forOrd$Conc_putida[i] <- absDen_forOrd$putida[i] * epsilon / absDen_forOrd$CommRich[i]
+  absDen_forOrd$Conc_protegens[i] <- absDen_forOrd$protegens[i] * epsilon / absDen_forOrd$CommRich[i]
+  absDen_forOrd$Conc_grimontii[i] <- absDen_forOrd$grimontii[i] * epsilon / absDen_forOrd$CommRich[i]
+  absDen_forOrd$Conc_veronii[i] <- absDen_forOrd$veronii[i] * epsilon / absDen_forOrd$CommRich[i]
+}
+# re-order the levels of Heat for better plotting
+absDen_forOrd$Heat <- factor(absDen_forOrd$Heat, levels=c("control", "6", "12", "24", "48"))
+# finally we can drop the TotDen_plusEpsilon column
+absDen_forOrd <- absDen_forOrd %>% select(-TotDen_plusEpsilon)
+rm(epsilon, missing_rows)
+
+# first we have to widen the data:
+# create a column that indicates the treatment day as resistance, early recovery, or late recovery
+absDen_forOrd$trtmt_day <- "resist"
+absDen_forOrd$trtmt_day[absDen_forOrd$Recov_Day == 1] <- "early_recov"
+absDen_forOrd$trtmt_day[absDen_forOrd$Recov_Day == 2] <- "late_recov"
+# ENTIRELY ARBITARARILY: I will keep days 1, 3, and 5 for control
+absDen_forOrd$trtmt_day[absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 3] <- "early_recov"
+absDen_forOrd$trtmt_day[absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 5] <- "late_recov"
+# remove day 1 for 12h, 24h, 48h AND day 2 for 48h.
+absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 12 & absDen_forOrd$Day == 1), ]
+absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 24 & absDen_forOrd$Day == 1), ]
+absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 48 & absDen_forOrd$Day == 1), ]
+absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 48 & absDen_forOrd$Day == 2), ]
+# also remove day 2 and day 4 for control.
+absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 2), ]
+absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 4), ]
+
+# pivot wider to create a column for each of the 4 species on each of the 3 days
+absDen_wide_forOrd <- absDen_forOrd %>% select(-Day, -Heat_Day, -Recov_Day) %>%
+                          pivot_wider(names_from = trtmt_day,
+                                      values_from = c(Conc_putida, Conc_protegens, Conc_grimontii, Conc_veronii))
+
+# re-name the species abundance over time columns so they are shorter (again for better plotting)
+colnames(absDen_wide_forOrd)[9:20] <- c("Pu_Resist", "Pu_earlyR", "Pu_lateR",
+                                        "Pt_Resist", "Pt_earlyR", "Pt_lateR",
+                                        "Gi_Resist", "Gi_earlyR", "Gi_lateR",
+                                        "Vn_Resist", "Vn_earlyR", "Vn_lateR")
+
+```
+```{r, NMDS_analysis_plots_signif}
+# keep just the species abundances
+abundance_matrix <- as.matrix(absDen_wide_forOrd[,9:20])
+
+# a function to automatically run the NMDS for k = 1 to 10 so we can choose appropriately small number of dimensions for ordination
+NMDS.scree <- function(mat) { #where x is the abundance matrix
+  data.frame(k = 1:10,
+            # autotransform the data before calculating the bray-curtis dissimilarity
+            stress = sapply(1:10, function(x) metaMDS(mat, distance = "bray", k = x, autotransform = TRUE)$stress))
+}
+scree_out <- NMDS.scree(abundance_matrix)
+plot(scree_out)
+# k=3 looks great
+try.NMDS <- metaMDS(abundance_matrix, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
+
+# let's get a general idea of what this NMDS is separating...
+
+# plot the results for axis 1 & 2
+ordiplot(try.NMDS, type = "n") # create blank ordination plot
+orditorp(try.NMDS, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(try.NMDS, display = "species", col="red", air = 0.1) # add species names in red
+
+# plot the results for axis 1 & 3
+ordiplot(try.NMDS, choices = c(1,3), type = "n") # create blank ordination plot
+orditorp(try.NMDS, choices = c(1,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(try.NMDS, choices = c(1,3), display = "species", col="red", air = 0.1) # add species names in red
+
+# plot the results for axis 2 & 3
+ordiplot(try.NMDS, choices = c(2,3), type = "n") # create blank ordination plot
+orditorp(try.NMDS, choices = c(2,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(try.NMDS, choices = c(2,3), display = "species", col="red", air = 0.1) # add species names in red
+
+
+# we already know that presense/absence of protegens is consistently the most important thing for all communities so let's see if that shows up here.
+# Let's switch over to ggplot to be certain that everything is labelled correctly.
+
+# define a function (related to vegan) that finds coordinates for drawing a covariance ellipse
+  # CREDIT: THIS COMES FROM ONE OF THE TUTORIALS ABOVE!!!
+veganCovEllipse <- function (cov, center = c(0, 0), scale = 1, npoints = 100) {
+  theta <- (0:npoints) * 2 * pi/npoints
+  Circle <- cbind(cos(theta), sin(theta))
+  t(center + scale * t(Circle %*% chol(cov)))
+  # finds the centroids and dispersion of the different ellipses based on a grouping factor of your choice
+}
+
+nmds_for_ggplot <- cbind(absDen_wide_forOrd[,1:8],
+                         as.data.frame(scores(try.NMDS)$sites))
+# create a new factor that defines the combination of heat and protegens
+nmds_for_ggplot <- nmds_for_ggplot %>% unite("HeatxProtegens", c(Heat, protegens), remove = FALSE)
+nmds_for_ggplot$HeatxProtegens <- factor(nmds_for_ggplot$HeatxProtegens,
+                                         levels = c("6_0", "6_1", "12_0", "12_1", "24_0", "24_1", "48_0", "48_1", "control_0", "control_1"))
+
+
+
+# create empty dataframes to combine NMDS data with ellipse data
+ellipse12_df <- ellipse13_df <- ellipse23_df <- data.frame() # numbers indicate the ordination axes
+# adding data for ellipses, using HeatxProtegens as a grouping factor
+for(g in levels(nmds_for_ggplot$HeatxProtegens)){
+  ellipse12_df <- rbind(ellipse12_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
+                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS2),
+                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
+                                                                     center=c(mean(NMDS1),mean(NMDS2)))))
+                                  , HeatxProtegens=g))
+  ellipse13_df <- rbind(ellipse13_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
+                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS3),
+                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
+                                                                     center=c(mean(NMDS1),mean(NMDS3)))))
+                                  , HeatxProtegens=g))
+  ellipse23_df <- rbind(ellipse23_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
+                                                     veganCovEllipse(cov.wt(cbind(NMDS2, NMDS3),
+                                                                            wt=rep(1/length(NMDS2),length(NMDS2)))$cov,
+                                                                     center=c(mean(NMDS2),mean(NMDS3)))))
+                                  , HeatxProtegens=g))
+}
+
+# now we separate the HeatxProtegens columns:
+ellipse12_df <- ellipse12_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
+ellipse12_df$Heat <- factor(ellipse12_df$Heat, levels = levels(nmds_for_ggplot$Heat))
+ellipse13_df <- ellipse13_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
+ellipse13_df$Heat <- factor(ellipse13_df$Heat, levels = levels(nmds_for_ggplot$Heat))
+ellipse23_df <- ellipse23_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
+ellipse23_df$Heat <- factor(ellipse23_df$Heat, levels = levels(nmds_for_ggplot$Heat))
+
+nmds_for_ggplot$protegens <- as.character(nmds_for_ggplot$protegens) # this needs to be discrete (could also be a factor)
+
+# and finally we can make the plots:
+ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
+    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + # adding different colours and shapes for points at different distances
+    geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # adding covariance ellipses according to distance # use size argument if ggplot2 < v. 3.4.0
+    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + # removes lines from colour part of the legend
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + # not sure why I need this but I do to over-write the default grey theme
+    labs(title="NMDS of all data (4sp & 3 time-points)")
+# axes 1 & 2 again showing just the ellipses (bc it's hard to see protegens effects as it's so overlapped)
+ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
+    geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # plot just the ellipses
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + # not sure why I need this but I do to over-write the default grey theme
+    labs(title="NMDS of all data (4sp & 3 time-points)")
+
+
+ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
+    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
+    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
+    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + 
+    labs(title="NMDS of all data (4sp & 3 time-points)")
+# axes 1 & 3 again showing just the ellipses
+ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
+    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + 
+    labs(title="NMDS of all data (4sp & 3 time-points)")
+
+ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
+    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
+    geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
+    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + 
+    labs(title="NMDS of all data (4sp & 3 time-points)")
+# axes 2 & 3 again showing just the ellipses (bc it's hard to see protegens effects as it's so overlapped)
+ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
+    geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + 
+    labs(title="NMDS of all data (4sp & 3 time-points)")
+
+################
+# check significance:
+# using a PERMANOVA to test the differences in community composition
+# This is a PERmutational Multivariate ANalysis Of VAriance and tests the differences between groups, like an ANOVA, but with lots of variables.
+# it is essentially a multivariate analysis of variance used to compare groups of objects
+nmdsdata_test_Heat <- adonis2(abundance_matrix ~ Heat, absDen_wide_forOrd,
+                              permutations = 999, method = "bray")
+print(nmdsdata_test_Heat)
+
+nmdsdata_test_Prot <- adonis2(abundance_matrix ~ protegens, absDen_wide_forOrd,
+                              permutations = 999, method = "bray")
+print(nmdsdata_test_Prot)
+
+nmdsdata_test_HeatxProt <- adonis2(abundance_matrix ~ Heat * protegens, absDen_wide_forOrd,
+                                   permutations = 999, method = "bray")
+print(nmdsdata_test_HeatxProt)
+
+# so these are all significant but is that spurious because the dispersion is different btw groups? (e.g., much smaller for protegens)
+
+##############
+# check PERMANOVA assumption of homogeneous group variances
+# Bray-curtis distance matrix
+dist_mat <- vegdist(abundance_matrix, method = "bray")
+
+# use betadisper test to check for multivariate homogeneity of group variances
+dispersion <- betadisper(dist_mat, group = paste(absDen_wide_forOrd$Heat, absDen_wide_forOrd$protegens))
+permutest(dispersion)
+
+# yeap! We need to try a different test that is robust to heterogenous group variances...
+
+################
+# check significance:
+# let's test for significance again using ANOSIM (which is another non-parametric test but this time only considering the ranks)
+nmdsdata_test2_HeatxProt <- anosim(dist_mat,
+                                   grouping = paste(absDen_wide_forOrd$Heat, absDen_wide_forOrd$protegens),
+                                   permutations = 999)
+plot(nmdsdata_test2_HeatxProt)
+summary(nmdsdata_test2_HeatxProt)
+
+# okay, let's say that we are satisfied with this significance testing...
+
+test <- absDen_wide_forOrd
+test$Heat <- as.character(levels(test$Heat))[test$Heat]
+test$Heat[test$Heat == "control"] <- 0
+test$Heat <- as.numeric(test$Heat)
+
+# let's see what the heat gradient looks like
+gg_ordiplot(try.NMDS, groups = absDen_wide_forOrd$protegens, plot = TRUE)
+gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5) # notice this gradient is not significant!!!
+gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(1,3))
+gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(2,3))
+```
+
+GREAT! This summarizes the same result that I found with the other indices: presence of P.protegens is the most important thing. Communities where this species was present look quite similar across different heat treatments. Longer heat durations push the communities toward different direction, until a threshold is reached at the longest heat treatment (48h).
+
+The NMDS ordination results are significant by PERMANOVA but the assumptions of that test might be violated because the dispersal is heterogeneous between groups. I think ANOSIM should be somewhat more robust to this problem because it uses ranks. The NMDS ordination results are significant by ANOSIM.
+
+```{r, NMDS_plot_for_pub}
+# this code block is reserved for creating the png that will be Figure 3A of the main text
+
+# clean up
+rm(abundance_matrix, try.PCA, dist, try.PCoA, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test)
+```
+
+# Richness
+
+## Plot
+
+## Analysis
+
+# Extinction
+
+## Plot
+
+## Analysis
+
+# Shannon diversity
+
+## Plot
+
+## Analysis
+
+# Productivity
+
+## Plot
+
+## Analysis
+
+# IGNORE EVERYTHING BELOW
 
 # Extinction stats
 
@@ -1434,18 +1740,6 @@ rm(community_extinction_probs)
 
 # Diversity stats
 
-We will analyze the diversity and the productivity (AKA total density) to understand how
-they change relative to the no heat control during the resistance and the recovery period.
-The diversity is easier to deal with because we can use the Shannon diversity calculation
-as implemented by `vegan`.
-
-For the total abundances, this data needs to be log transformed. Unfortunately, we do have
-extinction and NA events in this data. To deal with this issue, I use the $x + \epsilon$
-transformation in both the numerator and demoninator before calculating the effect size as
-$\frac{\textrm{total density}_{heat}}{\textrm{total density}_{control}}$. As for
-`timeseries--4Nov24.Rmd`, we define $\epsilon$ as 0.25 \* the threshold of detection for
-the flow cytometer, 50 total fluorescent events in $146\mu L$.
-
 The simplest hypothesis is that heat duration, inoculated richness, and their interaction
 explain the diversity during recovery and resistance.
 
@@ -1463,6 +1757,7 @@ above, but for the presence of `protegens`.
 ## Simple effect size
 
 ```{r, diversity}
+#### EVERYTHING BELOW THIS LINE WAS ALREADY COPIED UP ABOVE
 absDensity$Diversity <- diversity(absDensity[,c("Conc_putida", "Conc_protegens", "Conc_grimontii", "Conc_veronii")])
 
 # first let's remove the empty wells as we won't need them anymore
@@ -1487,6 +1782,7 @@ absDen_forFit$Total_density[below_threshold_rows] <- (0.25*50/146)
 absDen_forFit$TotDen_plusEpsilon <- absDen_forFit$Total_density
 absDen_forFit$TotDen_plusEpsilon[-below_threshold_rows] <- absDen_forFit$TotDen_plusEpsilon[-below_threshold_rows] + (0.25*50/146)
 rm(below_threshold_rows)
+#### EVERYTHING ABOVE THIS LINE WAS ALREADY COPIED UP ABOVE
 
 plot(ggplot(absDensity %>% filter(Day!=0,
                                   !is.na(CommRich)),
@@ -6119,894 +6415,4 @@ rm(absDen_48h, biodiv_6h, biodiv_12h, biodiv_24h, biodiversityEffects_df, combos
    posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h, productivity_effects, productivity48h_H0, productivitySubsettedData, richness_forFit,
    sel_6h_0, sel_6h_1, sel_6h_2, sel_12h_0, sel_12h_1, sel_12h_2, sel_24h_0, sel_24h_1, sel_24h_2, sel_effects, sel_effects_ttests, sel_protegens, selection_control0, selection_control1, selection_control2, selection_control3, test.df)
 ```
-
-# Ordination of data by treatment
-
-After backing up a bit and thinking about what the main story of the paper could be, I
-think the main message that I would like to tell with the paper is that heat duration has
-a threshold effect. So while shorter and intermediate heat durations have some effect
-during heat that is different from control, communities return to a similar state after
-recovery. On the other hand, long duration heat events lead to extinction (i.e., either of
-the entire community or of vulnerable species within the community) so the communities
-cannot recover anymore. In other words, there's a threshold effect where the amount of
-heat (or bacterial) induced killing has gone on for so long than it passes a critical
-point and the communities recover to a different state. I don't want to use the term
-"tipping point" but for sure the design of our experiment allows us to use phrases like
-"threshold effect" and "critical transition" *sensu stricto* (e.g., as explained in
-[Munson et al., 2018](https://doi.org/10.1111/nph.15145)).
-
-I think it would be fantastic if I could produce a figure that summarizes the entire data
-in a way that builds an argument for the quintessential ball-landscape schematic that
-people keep showing when they talk about ecosystem stability to perturbation (e.g., see
-schematic in Fig. 2 of [Shade et al., 2012](https://doi.org/10.3389/fmicb.2012.00417) or
-the empirical figure in Fig. 3 of [Jurburg et al.,
-2017](https://doi.org/10.1038/srep45691)). (Initially I thought that I would have a
-mixture of quantitative and qualitative data so I thought that I should use principal
-coordinate analysis (PCoA) and also try non-metric multidimensional scaling (NMDS) to make
-sure that both approaches give consistent results. Then I talked to Nico and he pointed
-out that my data is numeric -- not counts! -- so I should use PCA... Anyway, in practice
-for community ecology, the PCA uses euclidean distances and PCoA uses a dissimilarity
-index. I can literally try out all 3 and see what happens.)
-
-Here are some tutorials on ordination:
-<https://eddatascienceees.github.io/tutorial-rayrr13/>
-<https://ourcodingclub.github.io/tutorials/ordination/>
-<https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/anosim/>
-<https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/visualizing-and-interpreting-ordinations/>
-
-If we just follow the example tutorials directly, with columns = four species and rows =
-different communities on different days for different heat treatments, then the data
-simply gets split up by species.
-
-To calculate the Bray-Curtis dissimilarity, we are forced to choose how to deal with NA values (most of
-which are found in the resistance time points and so it doesn't really make sense to outright drop them). NA
-values exist for two reasons:
-
-1.  "true" missing data where the well was not acquired at all due to technical
-    difficulties/mistakes (only a few of this type). I used interpolation to deal with these: use the median value from other replicates at that same community:day:treatment.
-
-2.  below threshold of detection missing data where the total density was too low to
-    reliably estimate the cell counts. I replace the NA with the limit of detection of the cytometer ("epsilon", as above) and assume equal frequencies of the species that were inoculated in that community.
-
-
-```{r, PCA_cols_4sp}
-# go back to the complete data that includes NA values for all 4 species on some days
-absDen_forOrd <- absDen_forFit %>% select(-Total_density, -Diversity, -HillDiv_q1, -TotDensity_scale)
-# NA values with Total_density == NA are "true" missing data where I failed to record the flow cytometry measurements on that day due to technical difficulties/mistakes. These can be interpolated by using the median values from the remaining community replicates
-  ## get the median values for all communities, days, and heat treatments
-median_vals <- absDen_forOrd %>% group_by(Heat, Day, community) %>%
-                  summarise(Med_putida = median(Conc_putida, na.rm=TRUE),
-                            Med_protegens = median(Conc_protegens, na.rm=TRUE),
-                            Med_grimontii = median(Conc_grimontii, na.rm=TRUE),
-                            Med_veronii = median(Conc_veronii, na.rm=TRUE))
-  ## get the index for the rows with "true" missing values
-missing_rows <- which(is.na(absDen_forOrd$TotDen_plusEpsilon))
-  ## loop through the missing values
-for(i in missing_rows){
-  # find the interpolation value in the table of median values
-  temp_med_val <- median_vals[median_vals$Heat == absDen_forOrd$Heat[i] &
-                                median_vals$Day == absDen_forOrd$Day[i] &
-                                median_vals$community == absDen_forOrd$community[i],]
-  # replace the NA values with the median values
-  absDen_forOrd$Conc_putida[i] <- temp_med_val$Med_putida
-  absDen_forOrd$Conc_protegens[i] <- temp_med_val$Med_protegens
-  absDen_forOrd$Conc_grimontii[i] <- temp_med_val$Med_grimontii
-  absDen_forOrd$Conc_veronii[i] <- temp_med_val$Med_veronii
-  # clean up
-  rm(temp_med_val)
-}
-# clean up
-rm(median_vals, missing_rows)
-
-# on the other hand, NA values where Total_density is epsilon represent flow cytometry counts that were below the threshold of detection. In this case let's assume 1:1 ratios of inoculated strains at a total density equal to epsilon.
-epsilon <- min(absDen_forOrd$TotDen_plusEpsilon, na.rm=TRUE)
-  ## get the index for the missing value rows below the threshold of detection
-missing_rows <- which(is.na(absDen_forOrd$Conc_putida))
-  ## CommRich NA values were supposed to indicate some differences but that doesn't really matter for us anymore
-absDen_forOrd$CommRich <- absDen_forOrd$putida + absDen_forOrd$protegens + absDen_forOrd$grimontii + absDen_forOrd$veronii
-for(i in missing_rows){
-  # replace the NA values with epsilon divided by the inoculated species richness
-  absDen_forOrd$Conc_putida[i] <- absDen_forOrd$putida[i] * epsilon / absDen_forOrd$CommRich[i]
-  absDen_forOrd$Conc_protegens[i] <- absDen_forOrd$protegens[i] * epsilon / absDen_forOrd$CommRich[i]
-  absDen_forOrd$Conc_grimontii[i] <- absDen_forOrd$grimontii[i] * epsilon / absDen_forOrd$CommRich[i]
-  absDen_forOrd$Conc_veronii[i] <- absDen_forOrd$veronii[i] * epsilon / absDen_forOrd$CommRich[i]
-}
-# re-order the levels of Heat for better plotting
-absDen_forOrd$Heat <- factor(absDen_forOrd$Heat, levels=c("control", "6", "12", "24", "48"))
-# finally we can drop the TotDen_plusEpsilon column
-absDen_forOrd <- absDen_forOrd %>% select(-TotDen_plusEpsilon)
-rm(epsilon, missing_rows)
-
-
-# now we can do the ordination
-
-# keep just the 4 species abundances
-abundance_matrix <- as.matrix(absDen_forOrd[,12:15])
-# re-name the columns for better plotting
-colnames(abundance_matrix) <- c("Pu", "Pt", "Gi", "Vn")
-
-try.PCA <- rda(abundance_matrix, scale=FALSE) # function from vegan package
-  ## all species are measured on the same scale (flow cytometry counts) so use scale = FALSE
-
-# a bar plot of relative eigenvalues --> the percentage variance explained by each axis
-barplot(as.vector(try.PCA$CA$eig)/sum(try.PCA$CA$eig), xlab="PCA ordination axis", ylab="% of variance explained")
-## 83% of variance explained by top 2 axes
-sum((as.vector(try.PCA$CA$eig)/sum(try.PCA$CA$eig))[1:2])
-## and 97% explained by the 3. As we only have 4 species, we should hope this would be the case XD
-sum((as.vector(try.PCA$CA$eig)/sum(try.PCA$CA$eig))[1:3])
-
-# show results as a biplot
-biplot(try.PCA, choices = c(1,2), type = c("text", "points"))
-biplot(try.PCA, choices = c(1,3), type = c("text", "points"))
-```
-
-The PCA is telling us that most of the variance in the data is explained by the abundances
-of putida vs protegens (axis 1), with residual variance explained by veronii abundance
-(axis 2), and the remaining variance explained by grimontii (axis 3). This result is
-rather trivial. But the problem is not just the PCA method itself because NMDS is also
-giving us a similar result:
-
-```{r, nmds_cols_4sp, eval=FALSE}
-# it's not possible to use bray-curtis dissimilarity as there are communities with 0 for all species:
-try.NMDS <- metaMDS(abundance_matrix, distance = "bray", k = 2, autotransform = TRUE, trymax=100)
-  ## if we look at the source code for vegdist (the function that generated the error message),
-vegdist
-  ## we see that 5 other metrics do support communities with all 0 values: manhattan, euclidean, gower, mahalanobis, and chisq
-# let's try again arbitrarily choosing manhattan
-try.NMDS <- metaMDS(abundance_matrix, distance = "manhattan", k = 2, autotransform = TRUE, trymax=100)
-
-# this takes a while to run so we will simply save its result
-save(try.NMDS, file="naive_nmds.RData")
-```
-
-```{r, nmds_cols_4sp_PT2}
-load("naive_nmds.RData")
-
-# check the stress value. It should be < 0.2, ideally even < 0.05. (Too low stress values can indicate too many 0 values)
-try.NMDS$stress # looks good
-
-# plot the results
-plot(try.NMDS)
-ordiplot(try.NMDS, type = "n") # create blank ordination plot
-orditorp(try.NMDS, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, display = "species", col="red", air = 0.1) # add species names in red
-
-# let's look more closely at this plot because we know there is a strong effect of protegens and a weaker effect of heat...
-
-# define a function (related to vegan) that finds coordinates for drawing a covariance ellipse
-veganCovEllipse <- function (cov, center = c(0, 0), scale = 1, npoints = 100) {
-  theta <- (0:npoints) * 2 * pi/npoints
-  Circle <- cbind(cos(theta), sin(theta))
-  t(center + scale * t(Circle %*% chol(cov)))
-  # finds the centroids and dispersion of the different ellipses based on a grouping factor of your choice
-}
-
-# Let's switch over to ggplot for displaying Heat by colour and protegens presence/absence by linetype
-nmds_for_ggplot <- cbind(absDen_forOrd[,1:11],
-                         as.data.frame(scores(try.NMDS)$sites))
-# create a new factor that defines the combination of heat and protegens
-nmds_for_ggplot <- nmds_for_ggplot %>% unite("HeatxProtegensxDay", c(Heat, protegens, Day), remove = FALSE)
-nmds_for_ggplot$HeatxProtegensxDay <- factor(nmds_for_ggplot$HeatxProtegensxDay)
-
-# create empty dataframe to combine NMDS data with ellipse data
-#ellipse12_df <- data.frame()
-# adding data for ellipses, using HeatxProtegensxDay as the grouping factor
-#for(g in levels(nmds_for_ggplot$HeatxProtegensxDay)){
-#  ellipse12_df <- rbind(ellipse12_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegensxDay==g,],
-#                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS2),
-#                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
-#                                                                     center=c(mean(NMDS1),mean(NMDS2)))))
-#                                  , HeatxProtegensxDay=g))
-#}
-# This is NOT working because of some issue when drawing the covariance ellipse. It must be the same issue as the error that gg_ordiplot gives below: "Warning: the matrix is either rank-deficient or not positive definite"
-
-gg_ordiplot(try.NMDS, groups = nmds_for_ggplot$HeatxProtegensxDay, plot = TRUE)
-
-test <- absDen_forOrd
-test$Heat <- as.character(levels(test$Heat))[test$Heat]
-test$Heat[test$Heat == "control"] <- 0
-test$Heat <- as.numeric(test$Heat)
-
-# so I can draw the ellipses with the functions from ggordiplots but this package is not sufficiently flexible to allow clear plotting of the interaction between protegens x Heat... (nevermind the 3-way interaction of time as well)
-gg_ordiplot(try.NMDS, groups = paste(absDen_forOrd$Day, absDen_forOrd$protegens), plot = TRUE)
-gg_envfit(try.NMDS, env = test$Heat, groups = paste(absDen_forOrd$Heat, absDen_forOrd$Day, absDen_forOrd$protegens), plot = TRUE)
-
-# clean up
-rm(abundance_matrix, try.PCA, try.NMDS, nmds_for_ggplot, test)
-```
-
-Above I am using the data in a rather naive way by giving the abundance data for each of the 4 species (i.e., the columns in the abundance matrix) and different sites (aka rows in the abundance matrix) are the different communities over time and with different heat durations. It would be ideal to do the ordination this way because then we could see if the communities exposed to 6-24h of heat recover in the same way (but 48h recovers in a different way). The problem is that this creates rows in the abundance matrix that are all 0's (i.e., when extinction happens). The bray-curtis dissimilarity metric does not allow extinct sites and, even though there are some other metrics that do (e.g., manhattan is used above) ... I still have problems with this because the covariance ellipses cannot be drawn since the abundance matrix is "either rank-deficient or not positive definite" :/ Maybe I will try out the different metrics below considering species other than protegens...
-
-## rows as time-series: wide data
-
-We want to understand how the communities are changing over time so let's give it the data
-as species x time. This can be achieved by widening the data so that we have abundances of
-the 4 species during resistance, during early recovery, and during late recovery.
-
-Note that I also had to keep just 3 time points from the control treatment. I chose to keep day 1 (coded as "resistance"), day 3 (coded as "early recovery"), and day 5 (coded as "late recovery") because this way the ordination plot will show the control treatment early, middle, and late in the time series... 
-
-While all of this is a slight improvement as compared to above, it doesn't show exactly the summary picture that I was hoping for :(
-
-```{r, Ord_cols_4spBYday}
-# first we have to widen the data:
-# create a column that indicates the treatment day as resistance, early recovery, or late recovery
-absDen_forOrd$trtmt_day <- "resist"
-absDen_forOrd$trtmt_day[absDen_forOrd$Recov_Day == 1] <- "early_recov"
-absDen_forOrd$trtmt_day[absDen_forOrd$Recov_Day == 2] <- "late_recov"
-# ENTIRELY ARBITARARILY: I will keep days 1, 3, and 5 for control
-absDen_forOrd$trtmt_day[absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 3] <- "early_recov"
-absDen_forOrd$trtmt_day[absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 5] <- "late_recov"
-# remove day 1 for 12h, 24h, 48h AND day 2 for 48h.
-absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 12 & absDen_forOrd$Day == 1), ]
-absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 24 & absDen_forOrd$Day == 1), ]
-absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 48 & absDen_forOrd$Day == 1), ]
-absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == 48 & absDen_forOrd$Day == 2), ]
-# also remove day 2 and day 4 for control.
-absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 2), ]
-absDen_forOrd <- absDen_forOrd[!(absDen_forOrd$Heat == "control" & absDen_forOrd$Day == 4), ]
-# pivot wider to create a column for each of the 4 species on each of the 3 days
-absDen_wide_forOrd <- absDen_forOrd %>% select(-Day, -Heat_Day, -Recov_Day) %>%
-                          pivot_wider(names_from = trtmt_day,
-                                      values_from = c(Conc_putida, Conc_protegens, Conc_grimontii, Conc_veronii))
-
-# re-name the species abundance over time columns so they are shorter (again for better plotting)
-colnames(absDen_wide_forOrd)[9:20] <- c("Pu_Resist", "Pu_earlyR", "Pu_lateR",
-                                        "Pt_Resist", "Pt_earlyR", "Pt_lateR",
-                                        "Gi_Resist", "Gi_earlyR", "Gi_lateR",
-                                        "Vn_Resist", "Vn_earlyR", "Vn_lateR")
-
-###############
-# OKKKKAYYY! now we can try out the PCA:
-###############
-# keep just the species abundances
-abundance_matrix <- as.matrix(absDen_wide_forOrd[,9:20])
-try.PCA <- rda(abundance_matrix, scale=FALSE) 
-
-# a bar plot of relative eigenvalues --> the percentage variance explained by each axis
-barplot(as.vector(try.PCA$CA$eig)/sum(try.PCA$CA$eig), xlab="PCA ordination axis", ylab="% of variance explained")
-## 63% of variance explained by top 2 axes
-sum((as.vector(try.PCA$CA$eig)/sum(try.PCA$CA$eig))[1:2])
-## and 76% explained by the top 3...
-sum((as.vector(try.PCA$CA$eig)/sum(try.PCA$CA$eig))[1:3])
-
-# show results as a biplot
-biplot(try.PCA, choices = c(1,2), type = c("text", "points"))
-biplot(try.PCA, choices = c(1,3), type = c("text", "points"))
-
-# okay, so again it seems to be mostly separating things by species...
-# this is probably why Nico warned me that I will likely need to separate the communities out by species anyway
-
-# visualize using ellipse plot
-ordiplot(try.PCA) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.PCA, absDen_wide_forOrd$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120) # adding ellipses to the plot, grouping by distance (inverts$Distance)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9) # adding a legend
-
-# other axes
-ordiplot(try.PCA, choices = c(1,3)) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.PCA, choices = c(1,3),  absDen_wide_forOrd$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120) # adding ellipses to the plot, grouping by distance (inverts$Distance)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9) # adding a legend
-
-
-###############
-# FINE THEN! we'll try a PCoA:
-###############
-# let's use the Bray-Curtis dissimilarity as this is commonly used for abundance data
-dist <- vegdist(abundance_matrix, method = "bray", na.rm=TRUE)
-
-# run PCoA from ape package
-try.PCoA <- pcoa(dist)
-
-# a bar plot of relative eigenvalues --> the percentage variance explained by each axis
-barplot(try.PCoA$values$Relative_eig[1:10], xlab="PCoA ordination axis", ylab="% of variance explained")
-# the first 2 axes only explain 59% of the variance
-sum(try.PCoA$values$Relative_eig[1:2])
-
-biplot.pcoa(try.PCoA, abundance_matrix)
-# this only looks slightly better and I'm not sure how to plot things from ape...
-
-###############
-# ALRIGHT!!! we'll do NMDS again
-###############
-# a function to automatically run the NMDS for k = 1 to 10 so we can choose appropriately small number of dimensions for ordination
-NMDS.scree <- function(mat) { #where x is the abundance matrix
-  data.frame(k = 1:10,
-            # autotransform the data before calculating the bray-curtis dissimilarity
-            stress = sapply(1:10, function(x) metaMDS(mat, distance = "bray", k = x, autotransform = TRUE)$stress))
-}
-scree_out <- NMDS.scree(abundance_matrix)
-plot(scree_out)
-# k=3 looks great
-try.NMDS <- metaMDS(abundance_matrix, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
-
-# plot the results for axis 1 & 2
-ordiplot(try.NMDS, type = "n") # create blank ordination plot
-orditorp(try.NMDS, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 1 & 3
-ordiplot(try.NMDS, choices = c(1,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(1,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(1,3), display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 2 & 3
-ordiplot(try.NMDS, choices = c(2,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(2,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(2,3), display = "species", col="red", air = 0.1) # add species names in red
-
-# visualize using ellipse plot for axis 1 & 2
-ordiplot(try.NMDS)
-ordiellipse(try.NMDS, absDen_wide_forOrd$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120) # adding ellipses to the plot, grouping by distance (inverts$Distance)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# ellipse plot for axis 1 & 3
-ordiplot(try.NMDS, choices = c(1,3)) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.NMDS, choices = c(1,3),  absDen_wide_forOrd$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# ellipse plot for axis 2 & 3
-ordiplot(try.NMDS, choices = c(2,3)) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.NMDS, choices = c(2,3),  absDen_wide_forOrd$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3, lty=1,
-            draw = "polygon", alpha=120)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# ...there is a small trend with heat but nothing super dramatic...
-# that kind of makes sense as we are interested in heat:time...
-
-# well, we already know that presense/absence of protegens is consistently the most important thing for all communities so let's see if that shows up here.
-# Let's switch over to ggplot to be certain that everything is labelled correctly.
-nmds_for_ggplot <- cbind(absDen_wide_forOrd[,1:8],
-                         as.data.frame(scores(try.NMDS)$sites))
-# create a new factor that defines the combination of heat and protegens
-nmds_for_ggplot <- nmds_for_ggplot %>% unite("HeatxProtegens", c(Heat, protegens), remove = FALSE)
-nmds_for_ggplot$HeatxProtegens <- factor(nmds_for_ggplot$HeatxProtegens,
-                                         levels = c("6_0", "6_1", "12_0", "12_1", "24_0", "24_1", "48_0", "48_1", "control_0", "control_1"))
-
-
-
-# create empty dataframes to combine NMDS data with ellipse data
-ellipse12_df <- ellipse13_df <- ellipse23_df <- data.frame() # numbers indicate the ordination axes
-# adding data for ellipses, using HeatxProtegens as a grouping factor
-for(g in levels(nmds_for_ggplot$HeatxProtegens)){
-  ellipse12_df <- rbind(ellipse12_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
-                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS2),
-                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
-                                                                     center=c(mean(NMDS1),mean(NMDS2)))))
-                                  , HeatxProtegens=g))
-  ellipse13_df <- rbind(ellipse13_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
-                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS3),
-                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
-                                                                     center=c(mean(NMDS1),mean(NMDS3)))))
-                                  , HeatxProtegens=g))
-  ellipse23_df <- rbind(ellipse23_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
-                                                     veganCovEllipse(cov.wt(cbind(NMDS2, NMDS3),
-                                                                            wt=rep(1/length(NMDS2),length(NMDS2)))$cov,
-                                                                     center=c(mean(NMDS2),mean(NMDS3)))))
-                                  , HeatxProtegens=g))
-}
-
-# now we separate the HeatxProtegens columns:
-ellipse12_df <- ellipse12_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
-ellipse12_df$Heat <- factor(ellipse12_df$Heat, levels = levels(nmds_for_ggplot$Heat))
-ellipse13_df <- ellipse13_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
-ellipse13_df$Heat <- factor(ellipse13_df$Heat, levels = levels(nmds_for_ggplot$Heat))
-ellipse23_df <- ellipse23_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
-ellipse23_df$Heat <- factor(ellipse23_df$Heat, levels = levels(nmds_for_ggplot$Heat))
-
-nmds_for_ggplot$protegens <- as.character(nmds_for_ggplot$protegens) # this needs to be discrete (could also be a factor)
-
-# and finally we can make the plots:
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
-    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + # adding different colours and shapes for points at different distances
-    geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # adding covariance ellipses according to distance # use size argument if ggplot2 < v. 3.4.0
-    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + # removes lines from colour part of the legend
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + # not sure why I need this but I do to over-write the default grey theme
-    labs(title="NMDS of all data (4sp & 3 time-points)")
-# axes 1 & 2 again showing just the ellipses (bc it's hard to see protegens effects as it's so overlapped)
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
-    geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # plot just the ellipses
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + # not sure why I need this but I do to over-write the default grey theme
-    labs(title="NMDS of all data (4sp & 3 time-points)")
-
-
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
-    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
-    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS of all data (4sp & 3 time-points)")
-# axes 1 & 3 again showing just the ellipses
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
-    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS of all data (4sp & 3 time-points)")
-
-ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
-    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
-    geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS of all data (4sp & 3 time-points)")
-# axes 2 & 3 again showing just the ellipses (bc it's hard to see protegens effects as it's so overlapped)
-ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
-    geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS of all data (4sp & 3 time-points)")
-
-################
-# check significance:
-# using a PERMANOVA to test the differences in community composition
-# This is a PERmutational Multivariate ANalysis Of VAriance and tests the differences between groups, like an ANOVA, but with lots of variables.
-# it is essentially a multivariate analysis of variance used to compare groups of objects
-nmdsdata_test_Heat <- adonis2(abundance_matrix ~ Heat, absDen_wide_forOrd,
-                              permutations = 999, method = "bray")
-print(nmdsdata_test_Heat)
-
-nmdsdata_test_Prot <- adonis2(abundance_matrix ~ protegens, absDen_wide_forOrd,
-                              permutations = 999, method = "bray")
-print(nmdsdata_test_Prot)
-
-nmdsdata_test_HeatxProt <- adonis2(abundance_matrix ~ Heat * protegens, absDen_wide_forOrd,
-                                   permutations = 999, method = "bray")
-print(nmdsdata_test_HeatxProt)
-
-# so these are all significant but is that spurious because the dispersion is different btw groups? (e.g., much smaller for protegens)
-
-##############
-# check PERMANOVA assumption of homogeneous group variances
-# Bray-curtis distance matrix
-dist_mat <- vegdist(abundance_matrix, method = "bray")
-
-# use betadisper test to check for multivariate homogeneity of group variances
-dispersion <- betadisper(dist_mat, group = paste(absDen_wide_forOrd$Heat, absDen_wide_forOrd$protegens))
-permutest(dispersion)
-
-# yeap! We need to try a different test that is robust to heterogenous group variances...
-
-################
-# check significance:
-# let's test for significance again using ANOSIM (which is another non-parametric test but this time only considering the ranks)
-nmdsdata_test2_HeatxProt <- anosim(dist_mat,
-                                   grouping = paste(absDen_wide_forOrd$Heat, absDen_wide_forOrd$protegens),
-                                   permutations = 999)
-plot(nmdsdata_test2_HeatxProt)
-summary(nmdsdata_test2_HeatxProt)
-
-# okay, let's say that we are satisfied with this significance testing...
-
-test <- absDen_wide_forOrd
-test$Heat <- as.character(levels(test$Heat))[test$Heat]
-test$Heat[test$Heat == "control"] <- 0
-test$Heat <- as.numeric(test$Heat)
-
-# let's see what the heat gradient looks like
-gg_ordiplot(try.NMDS, groups = absDen_wide_forOrd$protegens, plot = TRUE)
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5) # notice this gradient is not significant!!!
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(1,3))
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(2,3))
-
-# clean up
-rm(abundance_matrix, try.PCA, dist, try.PCoA, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test)
-```
-
-GREAT! This summarizes the same result that I found with the other indices: presence of P.protegens is the most important thing. Communities where this species was present look quite similar across different heat treatments. Longer heat durations push the communities toward different direction, until a threshold is reached at the longest heat treatment (48h).
-
-The NMDS ordination results are significant by PERMANOVA but the assumptions of that test might be violated because the dispersal is heterogeneous between groups. I think ANOSIM should be somewhat more robust to this problem because it uses ranks. The NMDS ordination results are significant by ANOSIM.
-
-## wide data WITHOUT protegens
-
-The biggest variation in our data comes from the presence/absence of protegens. Let's see how the ordination plot changes when we remove . *A priori* I would hope for better resolution of the heat effect, for example maybe one NMDS axis will split up different heat treatments. In addition, we can also check that the significant result we had above was not just due to the presence/absence of protegens.
-
-```{r, Ord_4spBYday_NOprotegens}
-# remove protegens from the data
-absDen_wide_forOrd_NOprotegens <- absDen_wide_forOrd %>% filter(protegens == 0) %>%
-                                    select(-Pt_Resist, -Pt_earlyR, -Pt_lateR)
-abundance_mat_NOprotegens <- as.matrix(absDen_wide_forOrd_NOprotegens[,9:17])
-
-# re-do the NMDS
-scree_out <- NMDS.scree(abundance_mat_NOprotegens)
-plot(scree_out)
-# again it's k=3 that looks appropriate
-try.NMDS <- metaMDS(abundance_mat_NOprotegens, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
-
-# plot the results for axis 1 & 2
-ordiplot(try.NMDS, type = "n") # create blank ordination plot
-orditorp(try.NMDS, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 1 & 3
-ordiplot(try.NMDS, choices = c(1,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(1,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(1,3), display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 2 & 3
-ordiplot(try.NMDS, choices = c(2,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(2,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(2,3), display = "species", col="red", air = 0.1) # add species names in red
-# AH-HA!! axes 2 & 3 are separating based on resistance vs recovery!
-
-## I would like to try rotating the ordination axis to see if it's possible to better emphasize the resistance vs recovery separation...
-# but this should NOT disregard the separation and trend of heat duration...
-
-# visualize using ellipse plot for axis 1 & 2
-ordiplot(try.NMDS)
-ordiellipse(try.NMDS, absDen_wide_forOrd_NOprotegens$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120) # adding ellipses to the plot, grouping by distance (inverts$Distance)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd_NOprotegens$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# ellipse plot for axis 1 & 3
-ordiplot(try.NMDS, choices = c(1,3)) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.NMDS, choices = c(1,3),  absDen_wide_forOrd_NOprotegens$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd_NOprotegens$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# ellipse plot for axis 2 & 3
-ordiplot(try.NMDS, choices = c(2,3)) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.NMDS, choices = c(2,3),  absDen_wide_forOrd_NOprotegens$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3, lty=1,
-            draw = "polygon", alpha=120)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd_NOprotegens$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# let's check if this gradient is significant...
-test <- absDen_wide_forOrd_NOprotegens
-test$Heat <- as.character(levels(test$Heat))[test$Heat]
-test$Heat[test$Heat == "control"] <- 0
-test$Heat <- as.numeric(test$Heat)
-
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd_NOprotegens$Heat, plot = TRUE, alpha=0.6)# notice this gradient is not significant!!!
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd_NOprotegens$Heat, plot = TRUE, alpha=0.6, choices=c(1,3))
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd_NOprotegens$Heat, plot = TRUE, alpha=0.6, choices=c(2,3))
-## THIS GRADIENT IS NOT SIGNIFICANT!!!!
-
-################
-# check significance using a PERMANOVA to test the differences in community composition
-nmdsdata_test_Heat <- adonis2(abundance_mat_NOprotegens ~ Heat, absDen_wide_forOrd_NOprotegens,
-                              permutations = 999, method = "bray")
-print(nmdsdata_test_Heat)
-
-# check PERMANOVA assumption of homogeneous group variances
-# Bray-curtis distance matrix
-dist_mat <- vegdist(abundance_mat_NOprotegens, method = "bray")
-
-# use betadisper test to check for multivariate homogeneity of group variances
-dispersion <- betadisper(dist_mat, group = absDen_wide_forOrd_NOprotegens$Heat)
-permutest(dispersion)
-# Great!! the dispersion is homogeneous now :)
-
-# Anyway, we can still check the significance of the NMDS using ANOSIM
-nmdsdata_test2_Heat <- anosim(dist_mat,
-                              grouping = absDen_wide_forOrd_NOprotegens$Heat,
-                              permutations = 999)
-plot(nmdsdata_test2_Heat)
-summary(nmdsdata_test2_Heat)
-
-# clean up
-rm(absDen_wide_forOrd_NOprotegens, abundance_mat_NOprotegens, scree_out, try.NMDS, test, temp, nmdsdata_test_Heat, dist_mat, dispersion, nmdsdata_test2_Heat)
-```
-
-
-The plots above show the communities **without** P. protegens. On the bright side I am finally seeing the separation of the resistance vs. recovery time points that I was hoping for (these can be seen on NMDS axes 2 & 3)... But on the other hand, we still see the 48h heat going back to overlap with the control. This is most likely what is producing the **non-significant** heat gradient shown in the terrible ggplots.
-
-Possible thing TO DO: It would be to try rotating the NMDS so that one of the axes shows the sepration between resistance & recovery. see here, <https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/visualizing-and-interpreting-ordinations/> The problem is that we want to rotate the NMDS using the column values (not an environmental variable)...
-
-
-## wide data ONLY protegens
-
-Let's see what the NMDS looks like when we consider just the communities with P. protegens.
-
-```{r, Ord_4spBYday_YESprotegens}
-# remove protegens from the data
-absDen_wide_forOrd_YESprotegens <- absDen_wide_forOrd %>% filter(protegens == 1)
-abundance_mat_YESprotegens <- as.matrix(absDen_wide_forOrd_YESprotegens[,9:20])
-
-# re-do the NMDS
-scree_out <- NMDS.scree(abundance_mat_YESprotegens)
-plot(scree_out)
-# this looks worse than what we had above. Let's choose k=3 again because otherwise we would be using something like 6 and it's very hard to interpret larger dimensions...
-try.NMDS <- metaMDS(abundance_mat_YESprotegens, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
-try.NMDS$stress # < 0.1 is considered ideal but anything < 0.2 is still good.
-
-# plot the results for axis 1 & 2
-ordiplot(try.NMDS, type = "n") # create blank ordination plot
-orditorp(try.NMDS, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 1 & 3
-ordiplot(try.NMDS, choices = c(1,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(1,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(1,3), display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 2 & 3
-ordiplot(try.NMDS, choices = c(2,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(2,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(2,3), display = "species", col="red", air = 0.1) # add species names in red
-
-# visualize using ellipse plot for axis 1 & 2
-ordiplot(try.NMDS)
-ordiellipse(try.NMDS, absDen_wide_forOrd_YESprotegens$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120) # adding ellipses to the plot, grouping by distance (inverts$Distance)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd_YESprotegens$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# ellipse plot for axis 1 & 3
-ordiplot(try.NMDS, choices = c(1,3)) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.NMDS, choices = c(1,3),  absDen_wide_forOrd_YESprotegens$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3,
-            draw = "polygon", alpha=120)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd_YESprotegens$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# ellipse plot for axis 2 & 3
-ordiplot(try.NMDS, choices = c(2,3)) # plot shows communities (circles) and species:time (crosses)
-ordiellipse(try.NMDS, choices = c(2,3),  absDen_wide_forOrd_YESprotegens$Heat, label = FALSE,
-            border =c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), lwd=3, lty=1,
-            draw = "polygon", alpha=120)
-legend("topright", title="Heat",
-       levels(absDen_wide_forOrd_YESprotegens$Heat),
-         fill=c("bisque1", "orange", "brown1", "darkorchid1", "deepskyblue2"), horiz=FALSE, cex=.9)
-
-# let's check if this gradient is significant...
-test <- absDen_wide_forOrd_YESprotegens
-test$Heat <- as.character(levels(test$Heat))[test$Heat]
-test$Heat[test$Heat == "control"] <- 0
-test$Heat <- as.numeric(test$Heat)
-# for proper labelling of the arrow, need to supply env as a data.frame
-temp <- as.data.frame(test$Heat)
-colnames(temp) <- "Heat"
-
-## AWESOME! the gradient is finally significant.
-gg_envfit(try.NMDS, env = temp, groups = absDen_wide_forOrd_YESprotegens$Heat, plot = TRUE, alpha=0.01)
-gg_envfit(try.NMDS, env = temp, groups = absDen_wide_forOrd_YESprotegens$Heat, plot = TRUE, alpha=0.01, choices=c(1,3))
-gg_envfit(try.NMDS, env = temp, groups = absDen_wide_forOrd_YESprotegens$Heat, plot = TRUE, alpha=0.01, choices=c(2,3))
-
-## try plotting it as a surface contour:
-ordisurf(try.NMDS ~ temp$Heat)
-ordisurf(try.NMDS ~ temp$Heat, choices = c(1,3))
-ordisurf(try.NMDS ~ temp$Heat, choices = c(2,3))
-
-################
-# check significance of heat categories using a PERMANOVA to test the differences in community composition
-nmdsdata_test_Heat <- adonis2(abundance_mat_YESprotegens ~ Heat, absDen_wide_forOrd_YESprotegens,
-                              permutations = 999, method = "bray")
-print(nmdsdata_test_Heat)
-
-# check PERMANOVA assumption of homogeneous group variances
-# Bray-curtis distance matrix
-dist_mat <- vegdist(abundance_mat_YESprotegens, method = "bray")
-
-# use betadisper test to check for multivariate homogeneity of group variances
-dispersion <- betadisper(dist_mat, group = absDen_wide_forOrd_YESprotegens$Heat)
-permutest(dispersion)
-# The dispersion is having some issues still...
-
-# Let's double check the significance of the NMDS using ANOSIM
-nmdsdata_test2_Heat <- anosim(dist_mat,
-                              grouping = absDen_wide_forOrd_YESprotegens$Heat,
-                              permutations = 999)
-plot(nmdsdata_test2_Heat)
-summary(nmdsdata_test2_Heat)
-
-# clean up
-rm(absDen_wide_forOrd_YESprotegens, abundance_mat_YESprotegens, scree_out, try.NMDS, test, temp, nmdsdata_test_Heat, dist_mat, dispersion, nmdsdata_test2_Heat)
-```
-
-Okay. So when we look at the communities only with P. protegens, we *are* able to find a significant gradient created by heat duration. The 48h duration (and 24h somewhat) is still quite different from the others, but at least heat moves the commmunities in a consistent direction now. Notice that even when we plot the heat duration surface (using `ordisurf`), I think the bulged shape of the contour lines is telling us that the effect of heat duration is not really (log) linear.
-
-Unfortunately, we cannot resolve any separation between the resistance and recovery time points...
-
-
-## wide data REMOVE extinct replicates
-
-I guess the other thing we know is that the replicates which go extinct have a big impact on the data, especially at 48h duration for communities WITHOUT P. protegens. Above, we saw that communities WITH P. protegens show a gradient effect of heat duration...
-
-So maybe if we throw out all the extinct wells but consider all communities, we can recover the constant effect of heat duration? (i.e., maybe it's the 19 extinct wells that are causing this shift in the 48h duration to look more like control)
-
-
-```{r, Ord_4spBYday_REMOVEextinct}
-# keep only the rows where the communities did NOT go extinct
-absDen_wide_forOrd_REMOVEextinct <- absDen_wide_forOrd %>% filter(uniqID %in% extinct.df$uniqID[extinct.df$survived == 1])
-abundance_mat_REMOVEextinct <- as.matrix(absDen_wide_forOrd_REMOVEextinct[,9:20])
-
-# check the best number of dimensions for NMDS
-scree_out <- NMDS.scree(abundance_mat_REMOVEextinct)
-plot(scree_out)
-# k = 3 looks great
-try.NMDS <- metaMDS(abundance_mat_REMOVEextinct, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
-
-# plot the results for axis 1 & 2
-ordiplot(try.NMDS, type = "n") # create blank ordination plot
-orditorp(try.NMDS, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 1 & 3
-ordiplot(try.NMDS, choices = c(1,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(1,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(1,3), display = "species", col="red", air = 0.1) # add species names in red
-# plot the results for axis 2 & 3
-ordiplot(try.NMDS, choices = c(2,3), type = "n") # create blank ordination plot
-orditorp(try.NMDS, choices = c(2,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
-orditorp(try.NMDS, choices = c(2,3), display = "species", col="red", air = 0.1) # add species names in red
-# okay so these look fairly similar to the 2nd NMDS that I did (for all communities as time series)
-# ... in other words, rather confusing because the heat effect is hidden under the protegens effect
-
-# let's go straight to plotting the protegens x heat effect using ggplot
-nmds_for_ggplot <- cbind(absDen_wide_forOrd_REMOVEextinct[,1:8],
-                         as.data.frame(scores(try.NMDS)$sites))
-# create a new factor that defines the combination of heat and protegens
-nmds_for_ggplot <- nmds_for_ggplot %>% unite("HeatxProtegens", c(Heat, protegens), remove = FALSE)
-nmds_for_ggplot$HeatxProtegens <- factor(nmds_for_ggplot$HeatxProtegens,
-                                         levels = c("6_0", "6_1", "12_0", "12_1", "24_0", "24_1", "48_0", "48_1", "control_0", "control_1"))
-
-# create empty dataframes to combine NMDS data with ellipse data
-ellipse12_df <- ellipse13_df <- ellipse23_df <- data.frame() # numbers indicate the ordination axes
-# adding data for ellipses, using HeatxProtegens as a grouping factor
-for(g in levels(nmds_for_ggplot$HeatxProtegens)){
-  ellipse12_df <- rbind(ellipse12_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
-                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS2),
-                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
-                                                                     center=c(mean(NMDS1),mean(NMDS2)))))
-                                  , HeatxProtegens=g))
-  ellipse13_df <- rbind(ellipse13_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
-                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS3),
-                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
-                                                                     center=c(mean(NMDS1),mean(NMDS3)))))
-                                  , HeatxProtegens=g))
-  ellipse23_df <- rbind(ellipse23_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
-                                                     veganCovEllipse(cov.wt(cbind(NMDS2, NMDS3),
-                                                                            wt=rep(1/length(NMDS2),length(NMDS2)))$cov,
-                                                                     center=c(mean(NMDS2),mean(NMDS3)))))
-                                  , HeatxProtegens=g))
-}
-# now we separate the HeatxProtegens columns:
-ellipse12_df <- ellipse12_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
-ellipse12_df$Heat <- factor(ellipse12_df$Heat, levels = levels(nmds_for_ggplot$Heat))
-ellipse13_df <- ellipse13_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
-ellipse13_df$Heat <- factor(ellipse13_df$Heat, levels = levels(nmds_for_ggplot$Heat))
-ellipse23_df <- ellipse23_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
-ellipse23_df$Heat <- factor(ellipse23_df$Heat, levels = levels(nmds_for_ggplot$Heat))
-
-nmds_for_ggplot$protegens <- as.character(nmds_for_ggplot$protegens) # this needs to be discrete (could also be a factor)
-
-# and finally we can make the plots:
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
-    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + # adding different colours and shapes for points at different distances
-    geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # adding covariance ellipses according to distance # use size argument if ggplot2 < v. 3.4.0
-    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + # removes lines from colour part of the legend
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + # not sure why I need this but I do to over-write the default grey theme
-    labs(title="NMDS without extinctions (4sp & 3 time-points)")
-# axes 1 & 2 again showing just the ellipses (bc it's hard to see protegens effects as it's so overlapped)
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
-    geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # plot just the ellipses
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + # not sure why I need this but I do to over-write the default grey theme
-    labs(title="NMDS without extinctions (4sp & 3 time-points)")
-
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
-    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
-    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS without extinctions (4sp & 3 time-points)")
-# axes 1 & 3 again showing just the ellipses
-ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
-    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS without extinctions (4sp & 3 time-points)")
-
-ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
-    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
-    geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS without extinctions (4sp & 3 time-points)")
-# axes 2 & 3 again showing just the ellipses (bc it's hard to see protegens effects as it's so overlapped)
-ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
-    geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
-    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
-    fave_theme + 
-    labs(title="NMDS without extinctions (4sp & 3 time-points)")
-
-# let's see if we can detect a heat gradient now that the 48h seems somewhat better behaved
-test <- absDen_wide_forOrd_REMOVEextinct
-test$Heat <- as.character(levels(test$Heat))[test$Heat]
-test$Heat[test$Heat == "control"] <- 0
-test$Heat <- as.numeric(test$Heat)
-# for proper labelling of the arrow, need to supply env as a data.frame
-temp <- as.data.frame(test$Heat)
-colnames(temp) <- "Heat"
-
-## Amazing, the gradient is finally significant!
-gg_envfit(try.NMDS, env = temp, groups = as.factor(absDen_wide_forOrd_REMOVEextinct$protegens), plot = TRUE, alpha=0.01)
-gg_envfit(try.NMDS, env = temp, groups = as.factor(absDen_wide_forOrd_REMOVEextinct$protegens), plot = TRUE, alpha=0.01, choices=c(1,3))
-gg_envfit(try.NMDS, env = temp, groups = as.factor(absDen_wide_forOrd_REMOVEextinct$protegens), plot = TRUE, alpha=0.01, choices=c(2,3))
-
-## try plotting it as a surface contour:
-ordisurf(try.NMDS ~ temp$Heat)
-ordisurf(try.NMDS ~ temp$Heat, choices = c(1,3))
-ordisurf(try.NMDS ~ temp$Heat, choices = c(2,3))
-
-###############
-# check significance using a PERMANOVA to test the differences in community composition
-nmdsdata_test_Heat <- adonis2(abundance_mat_REMOVEextinct ~ Heat, absDen_wide_forOrd_REMOVEextinct,
-                              permutations = 999, method = "bray")
-print(nmdsdata_test_Heat)
-
-nmdsdata_test_Prot <- adonis2(abundance_mat_REMOVEextinct ~ protegens, absDen_wide_forOrd_REMOVEextinct,
-                              permutations = 999, method = "bray")
-print(nmdsdata_test_Prot)
-
-nmdsdata_test_HeatxProt <- adonis2(abundance_mat_REMOVEextinct ~ Heat * protegens, absDen_wide_forOrd_REMOVEextinct,
-                                   permutations = 999, method = "bray")
-print(nmdsdata_test_HeatxProt)
-
-# so these are all significant but is that spurious because the dispersion is different btw groups? (e.g., much smaller for protegens)
-##############
-# check PERMANOVA assumption of homogeneous group variances
-# Bray-curtis distance matrix
-dist_mat <- vegdist(abundance_mat_REMOVEextinct, method = "bray")
-
-# use betadisper test to check for multivariate homogeneity of group variances
-dispersion <- betadisper(dist_mat, group = paste(absDen_wide_forOrd_REMOVEextinct$Heat, absDen_wide_forOrd_REMOVEextinct$protegens))
-permutest(dispersion)
-
-# yeap! We need to try a different test that is robust to heterogenous group variances...
-
-################
-# check significance again using ANOSIM (which is another non-parametric test but this time only considering the ranks)
-nmdsdata_test2_HeatxProt <- anosim(dist_mat,
-                                   grouping = paste(absDen_wide_forOrd_REMOVEextinct$Heat, absDen_wide_forOrd_REMOVEextinct$protegens),
-                                   permutations = 999)
-plot(nmdsdata_test2_HeatxProt)
-summary(nmdsdata_test2_HeatxProt)
-
-# clean up
-rm(absDen_wide_forOrd_REMOVEextinct, abundance_mat_REMOVEextinct, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, test, temp, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt)
-```
-
-So if we remove the extinctions from the data, then we find that increasing heat duration pushes the communities in a relatively consistent direction. As we can see from the contour plot, there's still a strong effect of P. protegens presence but the net effect is at least consistent now between presence/absence of protegens.
-
-Unfortunately, it's still not possible to summarize how the communities change over time (e.g., whether resistance or recovery look more similar to one another across heat treatments)... 
-
-
-### IGNORE EVERYTHING BELOW
-
-One problem with including all 4 species in the ordination analysis is that the presence of different species is most of the variation but we don't really care about the different species per se. But, we are far more interested in understanding what happens between different time points across all species. So I think it would be better to focus on each species separately so that we can see if there's a common impact of time... $\leftarrow$ the problem here is that I think the plot would be most informative when time is treated as an environmental variable. And if we do that as well as dropping all other species, then you're left with just 1 column in the ordination plot...
-
-```{R, NMDS_eachSP_byDAY}
-
-```
-
-
 

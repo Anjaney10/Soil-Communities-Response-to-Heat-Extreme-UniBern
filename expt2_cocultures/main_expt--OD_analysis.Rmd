@@ -1,0 +1,423 @@
+---
+title: "Resistance & recovery 4-sp communities: Analyze OD data"
+author: "Hermina"
+Date: "2025-02-19"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      smooth_scroll: false
+  pdf_document:
+    toc: true
+editor_options: 
+  markdown: 
+    wrap: 90
+---
+
+# Introduction
+
+This document goes along with `main_expt--flow_cytometry_analysis.Rmd`. So you
+will have to run the top part of that script first to produce the annotation file used below: "annotation_for_alldata.csv".
+
+The main purpose of this script is to wrangle the microspectrophotometer OD data for each day of the experiment.
+This data is used to identify wells that went extinct: these extinct wells are outputed to a file called "extinctOD_wells.csv" that is then used somewhere in the middle of `main_expt--flow_cytometry_analysis.Rmd`.
+Finally, the OD data is plotted (and some of the plots from here will make it into the supplement).
+
+# Process the data
+
+## Load the data
+
+```{r, loadEnv}
+library(tidyverse)
+library(RColorBrewer) # for changing the colours of plots
+source("H1_extract_heatpulse_OD_data.R") # some functions to load the OD data from Gen5 .txt output format
+
+# print the complete info about packages and versions currently loaded in the environment:
+sessionInfo()
+
+# set theme for all plots
+fave_theme <- theme_light() + # see other options at https://ggplot2.tidyverse.org/reference/ggtheme.html
+              theme(text = element_text(size=15), # larger text size for titles & axes
+                    panel.grid.major = element_blank(), # remove major gridlines
+                    panel.grid.minor = element_blank()) # remove minor gridlines
+theme_set(fave_theme)
+
+# define a palette for plotting the 4 species
+species_4pal = palette.colors(8, palette = "R4")[c(3, 5, 7, 2)] #in alphabetical order
+# define a palette for plotting the inoculated community richness
+CommRich_pal <- scale_colour_viridis_d(option = "viridis", begin=0.2, end=0.95)
+# define a palette for plotting the heat duration
+control_to_48h_pal <- scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9)
+```
+
+Load the OD data from the .txt files exported from the Gen5 software. Add annotation by
+calling on a .csv file in the same folder as this script.
+
+```{r, loadData}
+# import the data
+rawOD.data <- rbind(get_ODdata_serialbatch(folder="./data/serial_transf--2July24/OD growth curves Epoch2", incubator="Epoch", heat=6, Date="24-07-02"),
+                    get_ODdata_serialbatch(folder="./data/serial_transf--8July24/OD growth curves Epoch2", incubator="Epoch", heat=0, Date="24-07-08"),
+                    get_ODdata_serialbatch(folder="./data/serial_transf--8July24/OD growth curves H1", incubator="H1", heat=48, Date="24-07-08"),
+                    get_ODdata_serialbatch(folder="./data/serial_transf--5Aug24/OD growth curves Epoch2", incubator="Epoch", heat=12, Date="24-08-05"),
+                    get_ODdata_serialbatch(folder="./data/serial_transf--19Aug24/OD growth curves Epoch2", incubator="Epoch", heat=24, Date="24-08-19")
+                    )
+
+# open the annotation file
+annotation <- read.csv("annotation_for_alldata.csv")
+# drop columns that pertain to flow cytometry (and then resultant redundant rows)
+annotation <- annotation %>% select(-FLOWplateWell, -Plate) %>% distinct
+
+# add annotation to the OD data
+rawOD.data <- left_join(rawOD.data, annotation,
+                        by=c("uniqID", "OD_well", "Date", "Day", "Incubator", "Heat"))
+
+# on 24-07-08 and 24-08-19: I screwed up the inoculation of all wells in column 8. Ignore these wells altogether.
+rawOD.data <- rawOD.data[-intersect(which(rawOD.data$Date == "24-07-08"), # match the date !!!AND!!!
+                                    which(rawOD.data$OD_well %in% paste0(LETTERS[1:8],8))),] # match the column
+rawOD.data <- rawOD.data[-intersect(which(rawOD.data$Date == "24-08-19"), # same as above but for different date
+                                    which(rawOD.data$OD_well %in% paste0(LETTERS[1:8],8))),]
+
+# Well A6 only on Day 1 of 24-07-02: no flow cytometry data bc of mistake. But there is OD data, currently lacking annotation.
+# Add appropriate annotation to this well.
+  # get the appropriate data for species, inoculated community richness, and the heat treatment
+species.A6 <- rawOD.data %>% filter(uniqID == "24-07-02 Epoch A6", Day>1) %>% select(putida:CommRich) %>% distinct()
+heat.A6 <- rawOD.data %>% filter(Date == "24-07-02", Day==1, CommRich>0) %>% select(Heat_Day:Recov_Day) %>% distinct()
+annot.A6 <- cbind(species.A6, heat.A6)
+  # add the annotation to the data
+annot.A6 <- merge(rawOD.data %>% filter(uniqID == "24-07-02 Epoch A6", Day==1) %>% select(-(putida:Recov_Day)), annot.A6)
+  # replace the incorrectly annotated data with the properly annotated one.
+rawOD.data <- rbind(rawOD.data[-intersect(which(rawOD.data$uniqID=="24-07-02 Epoch A6"),which(rawOD.data$Day==1)),], # excludes incorrectly annotated data
+                    annot.A6)
+
+# clean-up
+rm(species.A6, heat.A6, annot.A6, annotation)
+```
+
+## Baseline subtraction
+
+Let's make some preliminary plots of the data so we have an idea what we are dealing
+with...
+
+```{r, prelim_plot}
+# add a column to indicate which rows are coming from the same sample on the same day
+rawOD.data <- rawOD.data %>% unite(uniqCurve, c(uniqID, Day), sep=" ", remove=FALSE)
+
+# plot 
+ggplot(rawOD.data %>% filter(!is.na(CommRich), Day==2),
+       aes(x=Time.hrs, y=OD, group=uniqCurve, colour=as.factor(Heat))) +
+  geom_line(alpha=0.2) +
+  control_to_48h_pal
+
+ggplot(rawOD.data %>% filter(CommRich==1) %>% unite(community, putida:veronii),
+       aes(x=Time.hrs, y=OD, group=uniqCurve, colour=community)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_smooth(aes(group=community)) +
+  scale_y_log10() +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  scale_colour_manual(values=species_4pal[c(4,1,2,3)],
+                      labels=c("veronii", "grimontii", "protegens", "putida")) +
+  labs(colour="Monocultures", y="raw OD on log scale")
+
+ggplot(rawOD.data %>% filter(CommRich==0),
+       aes(x=Time.hrs, y=OD, group=uniqCurve)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_line(alpha=0.2) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  labs(title = "blank wells")
+```
+
+Contamination is evident in the blank wells. But also, we can clearly see condensation
+when the temperature is reduced from 40C down to 30C. I will baseline subtract using the
+media value of the blank OD to try to remove this condensation artefact.
+
+```{r, baseline}
+# identify contaminated Wells to exclude them from the baseline
+ggplot(rawOD.data %>% filter(CommRich==0), aes(x=OD)) +
+  geom_histogram(colour="black", fill="white") +
+  labs(title="all blank wells")
+# let's suppose that we consider any OD > 1 as indicative of growth
+contaminated.blanks <- rawOD.data %>% filter(CommRich==0, OD > 1) %>% select(uniqID) %>% unlist()
+contaminated.blanks <- rawOD.data %>% filter(uniqID %in% contaminated.blanks)
+ggplot(contaminated.blanks,
+       aes(x=Time.hrs, y=OD, group=uniqCurve)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_line(alpha=0.2) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  labs(title = "contaminated blank wells")
+
+# calculate baseline using blank time-points with OD < 1
+tempOD <- rawOD.data[-intersect(which(rawOD.data$CommRich==0),which(rawOD.data$OD>1)),]
+# get the median OD value for each time point
+blanks.median <- tempOD %>% filter(CommRich==0) %>%
+                    group_by(Date, Day, Incubator, Time.hrs) %>%
+                        summarise(medianOD = median(OD))
+# plot the values for sanity check:
+ggplot(blanks.median,
+       aes(x=Time.hrs, y=medianOD)) +
+  facet_grid(rows=vars(paste0(Date, Incubator)), cols=vars(Day)) +
+  geom_point(alpha=0.1) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  labs(title="median OD of blank wells")
+
+# combine the median blank OD values back to the original data
+the.data <- left_join(tempOD, blanks.median,
+                    by=c("Date", "Day", "Incubator", "Time.hrs")) %>%
+              mutate(baselinedOD = OD-medianOD)
+# (do the same for the contaminated data. It will be useful later on.)
+contaminated.blanks <- left_join(contaminated.blanks, blanks.median,
+                                 by=c("Date", "Day", "Incubator", "Time.hrs")) %>%
+                          mutate(baselinedOD = OD-medianOD)
+
+# remove the contaminated blanks from the main data
+the.data <- the.data[-which(the.data$uniqID %in% unique(contaminated.blanks$uniqID)),]
+
+# re-do the monoculture plots from above to make sure the baselining of OD worked:
+ggplot(the.data %>% filter(CommRich==1) %>% unite(community, putida:veronii),
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=community)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_smooth(aes(group=community)) +
+  scale_y_log10() +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  scale_colour_manual(values=species_4pal[c(4,1,2,3)],
+                      labels=c("veronii", "grimontii", "protegens", "putida")) +
+  labs(colour="Monocultures", y="baselined OD on log scale")
+
+ggplot(the.data %>% filter(CommRich==1) %>% unite(community, putida:veronii),
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=community)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_smooth(aes(group=community)) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  scale_colour_manual(values=species_4pal[c(4,1,2,3)],
+                      labels=c("veronii", "grimontii", "protegens", "putida")) +
+  labs(colour="Monocultures", y="baselined OD")
+
+rm(tempOD, blanks.median)
+```
+
+Everything looks as good as can be expected :)
+
+## Identify extinct & contaminated wells
+
+I will use the OD data to confirm that wells have gone extinct. Try out two definitions of
+extinction:
+
+1.  Max baseline-subtracted OD on heat day 3 \> Mean baseline-subtracted OD after 20h of recovery day 2
+
+2.  Max baseline-subtracted OD across all uncontaminated true negative wells \> Max baseline-subtracted OD on recovery day 2
+    
+I compared the results (below) and found that the second option works better. I will use this.
+
+```{r, extinctWells}
+########
+# Cutoff 1: median across all samples on 2nd half of heat day 3
+########
+ggplot(the.data %>% filter(Heat_Day==3), aes(x=baselinedOD)) +
+  geom_histogram(colour="black", fill="white") +
+  labs(title="Baselined OD for ALL samples on Heat Day 3")
+cutoff1 <- the.data %>% filter(Heat_Day==3) %>% select(baselinedOD) %>% unlist() %>% max()
+
+# apply the cutoff
+extinct_c1 <- the.data %>% filter(Recov_Day==2, CommRich>0, Time.hrs<20) %>%
+                group_by(uniqID) %>% summarise(mean_baselinedOD = mean(baselinedOD)) %>%
+                  filter(mean_baselinedOD < cutoff1) %>% select(uniqID) %>% unlist()
+
+########
+# Cutoff 2: max of true negatives
+########
+ggplot(the.data %>% filter(CommRich==0), aes(x=baselinedOD)) +
+  geom_histogram(colour="black", fill="white") +
+  labs(title="Baselined OD of Negative controls for ALL heat & days")
+cutoff2 <- the.data %>% filter(CommRich==0) %>% select(baselinedOD) %>% unlist() %>% max()
+
+# apply the cutoff
+extinct_c2 <- the.data %>% filter(Recov_Day==2, CommRich>0) %>%
+                group_by(uniqID) %>% summarise(max_baselinedOD = max(baselinedOD)) %>%
+                  filter(max_baselinedOD < cutoff2) %>% select(uniqID) %>% unlist()
+# so it seems that cutoff1 is less stringent as it has produced more extinct candidates
+stopifnot(length(extinct_c1) > length(extinct_c2))
+
+# plot the results
+tmpData <- the.data %>% filter(uniqID %in% extinct_c1)
+tmpData$cutoff2 <- tmpData$uniqID %in% extinct_c2
+ggplot(tmpData %>% filter(Recov_Day==2),
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=cutoff2)) +
+  geom_line(alpha=0.5) +
+  geom_hline(yintercept = cutoff1, size=1.2, linetype="dotted", colour="darkorchid") +
+  geom_hline(yintercept = cutoff2, linetype="dashed", colour="black") +
+  labs(title="Compare cutoff1 (purple dots) vs 2 (black dash)",
+       colour="extinct in cutoff2?", x="Time in hrs (on Recovery Day 2)")
+# We can now confirm by eye that cutoff 2 works better than cutoff 1.
+
+# keep the cutoff for future decisions
+growth_cutoff <- cutoff2
+
+# the last thing we need to do is to check which day was the last day when anything detectable grew
+latest_time <- the.data %>% filter(uniqID %in% extinct_c2) # apply the better cutoff
+# get the latest time when growth could still be detected in eventually extinct wells,
+latest_time <- latest_time %>% filter(Time.hrs > 22) %>%
+                  group_by(uniqID, Day, Heat) %>% summarise(finalOD = mean(baselinedOD)) %>%
+                    filter(finalOD > growth_cutoff) %>% arrange(-Day) # largest Day will be at the top!!!
+latest_time <- latest_time[!duplicated(latest_time$uniqID),] # the first instance corresponds with the very last time
+
+# print out the extinct wells to file so that they can be used in analyze_temp_serial_transfer_expt--28Oct24.Rmd
+write.csv(latest_time %>% select(uniqID, Day),
+          file="./extinctOD_wells.csv", quote=FALSE, row.names=FALSE)
+
+rm(tmpData, cutoff1, cutoff2, extinct_c1, extinct_c2, latest_time)
+```
+
+Use the contaminated blank wells to estimate the rate of contamination across Dates (aka inoculum batches), unique Plates, and Days.
+
+```{r, contaminationRate}
+# re-arrange some stuff in contaminated.blanks for cleaner plotting
+contaminated.blanks$uniqID <- factor(contaminated.blanks$uniqID,
+                                     levels=c("24-08-05 Epoch C6", "24-07-02 Epoch D8", "24-08-05 Epoch D6",  "24-07-08 Epoch G6",
+                                              "24-08-05 Epoch D8", "24-07-08 H1 B6","24-08-05 Epoch D11", "24-07-08 Epoch C6",
+                                              "24-08-05 Epoch E6", "24-07-08 Epoch E6", "24-08-05 Epoch E11", "24-07-02 Epoch H12",
+                                              "24-08-05 Epoch F5", "24-07-08 Epoch H1", "24-08-05 Epoch F6",  "24-07-08 Epoch H3",
+                                              "24-08-05 Epoch G6", "24-07-08 H1 A1",    "24-08-05 Epoch H3",  "24-07-08 Epoch B10"))
+tmp <- data.frame(rep(NA,4),rep(NA,4),rep(NA,4), 1:4, rep(NA,4),rep(24,4),rep(NA,4),rep(NA,4),
+                  rep(NA,4),rep(NA,4),rep(NA,4),rep(NA,4), rep(NA,4),rep(NA,4),rep(NA,4),rep(NA,4),
+                  rep(NA,4),rep(NA,4),rep(NA,4))
+colnames(tmp) <- colnames(contaminated.blanks)
+contaminated.blanks <- rbind(contaminated.blanks, tmp)
+rm(tmp)
+
+# plot the unique contaminated blank wells
+ggplot(contaminated.blanks,
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=uniqID)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_line(alpha=0.6) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  labs(title = "contaminated blank wells (uniqID colours)") +
+  theme(legend.position="none")
+
+# find the times when OD got higher than baseline
+contaminated.blanks$detectTime <- contaminated.blanks$baselinedOD > growth_cutoff
+# check growth_cutoff is working as expected:
+ggplot(contaminated.blanks,
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=detectTime)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_point(alpha=0.5, size=0.1) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  labs(title = "contaminated blank wells", colour="above threshold?")
+
+# get the earliest time when contamination could be detected,
+earliest_time <- contaminated.blanks %>% filter(detectTime==TRUE) %>% group_by(uniqID, Day) %>%
+                    summarize(firstDetect = min(Time.hrs)) %>% arrange(uniqID, Day) %>%
+                      rename(detectHr=firstDetect)
+earliest_time <- earliest_time[!duplicated(earliest_time$uniqID),] # the first instance corresponds with the very earliest time
+
+# add the annotation back to the earliest contamination detection time
+earliest_time <- left_join(earliest_time,
+                           contaminated.blanks %>% select(uniqID, Day, Heat, Heat_Day, Recov_Day) %>% unique(),
+                           by=c("uniqID", "Day"))
+print(earliest_time) # print this table as it will be useful in its own right.
+
+# summarize this information as a probability for each heat treatment
+prob.heat <- earliest_time %>% group_by(Heat) %>% summarise(contEvents = n(), prob = n()/21)
+prob.heat <- rbind(prob.heat, c(24, 0, 0))
+print(prob.heat %>% arrange(Heat))
+mean(prob.heat$prob)
+
+# summarize this information as a probability for each day
+prob.day <- earliest_time %>% group_by(Day) %>% summarise(contEvents = n())
+prob.day <- rbind(c(1, 0), prob.day)
+prob.day$total_reps <- c(rep(5*21,3), 4*21, 2*21) # there's different numbers of blank wells per day across the whole experiment
+# because the days are sequential and wells can only be contaminated once,
+# a contamination event that occurred on Day 2 will decrease the total number of blank wells for all subsequent days
+for(i in 1:nrow(prob.day)){
+  #therefore, adjust the total reps for each day to take into account previously contaminated wells
+  prob.day$total_reps[i] <- prob.day$total_reps[i]-sum(prob.day$contEvents[1:i])
+}
+prob.day <- prob.day %>% mutate(prob = contEvents/total_reps, .keep="all")
+print(prob.day)
+
+# cleanup
+rm(contaminated.blanks, earliest_time, i, prob.day, prob.heat)
+```
+
+# Plot the data
+
+Before we can plot the data, we need to load the information about which replicates were identified by flow cytometry as having been contaminated. (e.g., Otherwise we might think that there was growth in a slow growing well when in fact it was just P. protegens contamination...).
+
+To do this, we will load in the `absDensity` data file from `main_expt--flow_cytometry_analysis.Rmd`. This contains the absolute densities from only the finalized dataset -- i.e., where all the contaminated replicates have been removed! We are going to use just the uniqID's from this finalized dataset.
+
+```{r, remove_contaminated}
+# load the absDensity data frame
+load("./absolute_density_data.RData")
+
+# keep the OD data only for uniqID's that are found in absDensity
+the.data <- the.data %>% filter(uniqID %in% unique(absDensity$uniqID))
+
+rm(absDensity)
+```
+
+Now we can go ahead and plot the OD over time from the finalized dataset:
+
+```{r, plots}
+ggplot(the.data %>% select(Date, Day, Heat, Time.hrs, Temp.C) %>% distinct(),
+       aes(x=Time.hrs, y=Temp.C)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_point(alpha=0.1) +
+  scale_y_continuous(limits=c(28,42), breaks=c(30,35,40)) +
+  scale_x_continuous(breaks=c(0,10,20))
+
+# extract some information about exact timing of temperature for model fitting
+ggplot(the.data %>% filter(Day==1, Heat!=0) %>%
+        ungroup() %>% group_by(Time.hrs) %>% summarise(meanTemp=mean(Temp.C),
+                                                       sdTemp=sd(Temp.C)),
+       aes(x=Time.hrs, y=meanTemp))+
+  geom_errorbar(aes(ymin=meanTemp-sdTemp, ymax=meanTemp+sdTemp))+
+  scale_x_continuous(limits=c(17,20), breaks=seq(from=17,to=20,by=0.5)) +
+  geom_point() +
+  labs(y="mean Temp +/- SD (*C)",
+       title="When exactly did heat start?")
+
+# how long was each day on average?
+tmp <- the.data %>% ungroup() %>% group_by(Day, Heat) %>%
+          summarise(maxTime=max(Time.hrs))
+ggplot(tmp, aes(x=Day, y=maxTime, colour=as.factor(Heat))) +
+  geom_point(alpha=0.5) +
+  geom_hline(yintercept=mean(tmp$maxTime))+
+  control_to_48h_pal +
+  labs(colour="Heat", title="How long was each day on average? (black line)")
+mean(tmp$maxTime)
+rm(tmp)
+
+# how long was each heat event
+the.data %>% filter(Heat!=0, Temp.C>35) %>% ungroup() %>%
+  group_by(Heat, Day) %>% summarise(minHeatT=min(Time.hrs),
+                                    maxHeatT=max(Time.hrs))
+
+### THIS NEEDS TO BE CHANGED!!!
+  # I have no idea what needs to be changed about this but okay??
+temp <- the.data
+temp[which(the.data$Day==1 & the.data$Heat==0 & the.data$CommRich==1 & the.data$protegens==1),c(10, 19)] <- temp[which(the.data$Day==1 & the.data$Heat==0 & the.data$CommRich==2 & the.data$putida==1 & the.data$veronii==1),c(10,19)]
+temp[which(the.data$Day==1 & the.data$Heat==48 & the.data$CommRich==1 & the.data$protegens==1),c(10, 19)] <- temp[which(the.data$Day==1 & the.data$Heat==48 & the.data$CommRich==2 & the.data$putida==1 & the.data$veronii==1),c(10,19)]
+temp <- temp %>% filter(CommRich==1) %>% unite(community, putida:veronii)
+temp$community[which(temp$community == "1_0_0_0")] <- "putida"
+temp$community[which(temp$community == "0_1_0_0")] <- "protegens"
+temp$community[which(temp$community == "0_0_1_0")] <- "grimontii"
+temp$community[which(temp$community == "0_0_0_1")] <- "veronii"
+temp$community <- factor(temp$community,
+                         levels=c("putida", "protegens", "grimontii", "veronii"))
+ggplot(temp,
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=community)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_line(alpha=0.2) +
+  scale_y_continuous(breaks=c(0, 0.75, 1.5)) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  scale_colour_manual(values=species_4pal[c(3,2,1,4)]) +
+  labs(colour="Monocultures", y="baselined OD", x="Time (days & hours)")
+
+ggplot(the.data %>% filter(CommRich>0),
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=as.factor(CommRich))) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_smooth(aes(group=CommRich)) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  CommRich_pal +
+  labs(colour="Inoculated\nRichness", y="baselined OD")
+```
