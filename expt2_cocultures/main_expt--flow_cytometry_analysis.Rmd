@@ -39,15 +39,16 @@ library(readxl) # for importing data directly from Excel sheet
 library(RColorBrewer) # for changing the colours of plots
 library(ggbeeswarm) # for beeswarm plots
 library(vegan) # to estimate diversity and for ordination (PCA & NDMA)
-library(lme4) # for fitting and trouble-shooting GLM's <-- not sure this is needed?
-library(glmmTMB) # (ditto as above)
+library(chemodiv) # for estimating species richness
+#library(lme4)  <-- not sure this is needed?
+library(glmmTMB) # for fitting and trouble-shooting GLM's
 library(DHARMa) # for plotting the residuals when using glmmTMB
 library(effsize) # for post-hoc estimate of effect sizes
 library(emmeans) # (ditto as above)
 library(BSDA) # for pairwise t-tests to compare effect sizes between data subsets
 library(ggforce) # for plotting ellipses in ggplot
 library(partitionBEFsp) # for paritioning the biodiversity effects
-library(ape) # for ordination (PCoA) <-- this isn't actually used for any analysis
+#library(ape) # for ordination ??
 library(ggordiplots) # for ggplotting ellipses around treatment group centroids during ordination
 
 # print the complete info about packages and versions currently loaded in the environment:
@@ -1462,7 +1463,7 @@ gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot
 gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(2,3))
 ```
 
-GREAT! This summarizes the same result that I found with the other indices: presence of P.protegens is the most important thing. Communities where this species was present look quite similar across different heat treatments. Longer heat durations push the communities toward different direction, until a threshold is reached at the longest heat treatment (48h).
+Great!, This summarizes the same result that I found with the other indices: presence of P.protegens is the most important thing. Communities where this species was present look quite similar across different heat treatments. Longer heat durations push the communities toward different direction, until a threshold is reached at the longest heat treatment (48h).
 
 The NMDS ordination results are significant by PERMANOVA but the assumptions of that test might be violated because the dispersal is heterogeneous between groups. I think ANOSIM should be somewhat more robust to this problem because it uses ranks. The NMDS ordination results are significant by ANOSIM.
 
@@ -1470,20 +1471,178 @@ The NMDS ordination results are significant by PERMANOVA but the assumptions of 
 # this code block is reserved for creating the png that will be Figure 3A of the main text
 
 # clean up
-rm(abundance_matrix, try.PCA, dist, try.PCoA, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test)
+rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test)
 ```
 
 # Richness
 
+Let's summarize the main result that P. protegens dominates all communities where it was inoculated. The species richness is conceptually a good metric for this ... but recall that the flow cytometry data has a some rate of misclassification (in some cases as much as 20% !!!). So we need to use richness estimates that take into account the proportion of species and are more likely to ignore rare species.
+
 ## Plot
 
-## Analysis
+```{r, richness}
+species_div.df <- absDen_forFit %>% mutate(relden_putida = Conc_putida/Total_density,
+                                 relden_protegens = Conc_protegens/Total_density,
+                                 relden_grimontii = Conc_grimontii/Total_density,
+                                 relden_veronii = Conc_veronii/Total_density)
+species_div.df <- species_div.df %>% mutate(HillEven_q0 = unlist(calcDiv(sampleData = species_div.df[,c("relden_putida","relden_protegens","relden_grimontii","relden_veronii")],
+        type = "HillEven",
+        q=0)),
+                              HillEven_q1 = unlist(calcDiv(sampleData = species_div.df[,c("relden_putida","relden_protegens","relden_grimontii","relden_veronii")],
+        type = "HillEven",
+        q=1)),
+        HillEven_q2 = unlist(calcDiv(sampleData = species_div.df[,c("relden_putida","relden_protegens","relden_grimontii","relden_veronii")],
+        type = "HillEven",
+        q=2)),
+        HillDiv_q1 = unlist(calcDiv(sampleData = species_div.df[,c("relden_putida","relden_protegens","relden_grimontii","relden_veronii")],
+        type = "HillDiv",
+        q=1)),
+        HillDiv_q2 = unlist(calcDiv(sampleData = species_div.df[,c("relden_putida","relden_protegens","relden_grimontii","relden_veronii")],
+        type = "HillDiv",
+        q=2)))
+
+ggplot(species_div.df,
+       aes(y=HillEven_q0, x=Day, colour=as.factor(CommRich))) +
+  facet_grid(protegens~as.factor(Heat)) +
+  geom_point(alpha=0.5) +
+  scale_colour_viridis_d(option = "viridis", begin=0.1)
+
+ggplot(species_div.df,
+       aes(y=HillEven_q1, x=Day, colour=as.factor(CommRich))) +
+  facet_grid(protegens~as.factor(Heat)) +
+  geom_point(alpha=0.5) +
+  scale_colour_viridis_d(option = "viridis", begin=0.1)
+
+ggplot(species_div.df,
+       aes(y=HillEven_q2, x=Day, colour=as.factor(CommRich))) +
+  facet_grid(protegens~as.factor(Heat)) +
+  geom_point(alpha=0.5) +
+  scale_colour_viridis_d(option = "viridis", begin=0.1)
+
+ggplot(species_div.df,
+       aes(y=HillDiv_q1, x=Day, colour=as.factor(CommRich))) +
+  facet_grid(protegens~as.factor(Heat)) +
+  geom_point(alpha=0.5) +
+  scale_colour_viridis_d(option = "viridis")
+
+ggplot(species_div.df,
+       aes(y=HillDiv_q2, x=Day, colour=as.factor(CommRich))) +
+  facet_grid(protegens~as.factor(Heat)) +
+  geom_point(alpha=0.5) +
+  scale_colour_viridis_d(option = "viridis")
+# this one gives infinite values. That's not useful.
+
+
+################################
+# Plot figure for main text: Figure 3b
+################################
+
+# The Hill Diversity with q=1 seems useful!! Let's include this plot in the final manuscript:
+# re-order  the levels of heat so that the control appears first
+species_div.df$Heat <- factor(species_div.df$Heat,
+                              levels = levels(species_div.df$Heat)[c(5,1:4)])
+# change variable names for nicer plotting
+levels(species_div.df$Heat)[2:5] <- paste(levels(species_div.df$Heat)[2:5], "hrs")
+species_div.df$Pprot_facet <- ifelse(species_div.df$protegens == 0, "P. protegens absent", "P. protegens present")
+ggplot(species_div.df %>% filter(CommRich > 1),
+        # exclude monocultures it's not an informative summary for those as their richness will always be equal to 1 even when they go extinct. 
+       aes(y=HillDiv_q1, x=Day, colour=as.factor(CommRich))) +
+  facet_grid(Pprot_facet~as.factor(Heat)) +
+  # add red rectangles in the background to indicate heat treatment as in Fig 1.
+  geom_point(alpha=0.5) + # try beeswarm???
+  scale_colour_viridis_d(option = "viridis", begin=0.85, end=0) +
+  # consider gray scale points...
+  #scale_colour_grey(start=0.3, end=0) +
+  # you may have to play around with the border like Ella said
+  labs(y = "Species Richness", # 1st order Hill Diversity
+       colour = "Inoculated\nRichness") +
+  theme(strip.background = element_rect(fill = "white", colour="black"),
+        strip.text = element_text(color = "black"),
+        #axis.title.y = element_text(size = 12),
+        axis.text.x=element_blank())
+
+rm(species_div.df)
+```
+
+
+( ## Analysis?? )
+
+I have effect sizes on richness for resistance and recovery but I'm not sure if this is going to make it into the manuscript... (see the `analyze_temp_serial_transfer_expt--28Oct24.html` if you're interested).
 
 # Extinction
 
-## Plot
-
 ## Analysis
+
+```{r, extinction_InnocRichness}
+# keep just the data on the last day of each time series
+extinct.df <- absDensity %>% filter(Recov_Day == 2, CommRich > 0)
+extinct.df <- rbind(extinct.df,
+                    absDensity %>% filter(Heat == 0, Day == 5, CommRich > 0))
+# binary vector of survival or extinction
+extinct.df <- extinct.df %>% mutate(survived = ifelse(Total_density > 0, 1, 0))
+### note that sample "24-07-08 Epoch G1" has missing data on Day 5 even though we know from the OD data that it survived.
+extinct.df$survived[extinct.df$uniqID == "24-07-08 Epoch G1"] <- 1
+
+# make protegens into a factor
+extinct.df$protegens <- factor(extinct.df$protegens)
+
+# fit the models
+extinct.model0 <- glmmTMB(survived ~ Heat,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = extinct.model0, plot = TRUE)
+
+extinct.model1 <- glmmTMB(survived ~ CommRich + Heat,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = extinct.model1, plot = TRUE)
+
+extinct.model2 <- glmmTMB(survived ~ CommRich*Heat,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = extinct.model2, plot = TRUE)
+
+extinct.model3 <- glmmTMB(survived ~ CommRich + Heat + protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = extinct.model3, plot = TRUE)
+
+extinct.model4 <- glmmTMB(survived ~ CommRich + Heat*protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = extinct.model4, plot = TRUE)
+
+#anova(extinct.model0, extinct.model1)
+#anova(extinct.model0, extinct.model2)
+#anova(extinct.model1, extinct.model2)
+
+#AIC(extinct.model0, extinct.model1, extinct.model2, extinct.model3, extinct.model4) %>% arrange(AIC)
+BIC(extinct.model0, extinct.model1, extinct.model2, extinct.model3, extinct.model4) %>% arrange(BIC)
+
+summary(extinct.model3)
+#summary(extinct.model4)
+
+anova(extinct.model0, extinct.model3)
+anova(extinct.model2, extinct.model3)
+anova(extinct.model3, extinct.model4)
+```
+
+Let's check if the average growth rate of the community at 30C can predict its extinction.
+
+```{r, extinction_InnocRichness}
+# load in the stationary phase growth rate estimates from Expt1
+
+# calculate the average growth rate for the inoculated communities
+
+
+```
+
+## Plot
 
 # Shannon diversity
 
