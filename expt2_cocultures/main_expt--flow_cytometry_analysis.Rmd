@@ -38,18 +38,19 @@ library(tidyverse)
 library(readxl) # for importing data directly from Excel sheet
 library(RColorBrewer) # for changing the colours of plots
 library(ggbeeswarm) # for beeswarm plots
-library(vegan) # to estimate diversity and for ordination (PCA & NDMA)
+library(vegan) # to estimate diversity and for ordination (NMDS)
+library(ggordiplots) # for ggplotting ellipses around treatment group centroids during ordination
 library(chemodiv) # for estimating species richness
 #library(lme4)  <-- not sure this is needed?
 library(glmmTMB) # for fitting and trouble-shooting GLM's
 library(DHARMa) # for plotting the residuals when using glmmTMB
+library(rcompanion) # for r-squared estimates of GLM's
 library(effsize) # for post-hoc estimate of effect sizes
 library(emmeans) # (ditto as above)
 library(BSDA) # for pairwise t-tests to compare effect sizes between data subsets
-library(ggforce) # for plotting ellipses in ggplot
-library(partitionBEFsp) # for paritioning the biodiversity effects
+#library(partitionBEFsp) # for paritioning the biodiversity effects
 #library(ape) # for ordination ??
-library(ggordiplots) # for ggplotting ellipses around treatment group centroids during ordination
+library(ggforce) # for plotting ellipses in ggplot
 
 # print the complete info about packages and versions currently loaded in the environment:
 sessionInfo()
@@ -836,6 +837,9 @@ the.data$Count_grimontii[which(the.data$Total_counts < 51)] <- NA
 the.data$Count_veronii[which(the.data$Total_counts < 51)] <- NA
 the.data$Total_density[which(the.data$Total_counts < 51)] <- NA
 the.data$Total_counts[which(the.data$Total_counts < 51)] <- NA
+
+# clean-up
+rm(annotated.rawdata)
 ```
 
 I have re-assigned all wells that had less than 51 total fluorescent events as NA values.
@@ -887,6 +891,9 @@ for(com in unique(the.data$community)) {
     scale_colour_manual(values=species_4pal_alphabetical) +
     labs(title=com))
 }
+
+# clean up
+rm(com)
 ```
 
 After staring at the above time series for long enough, two things become clear
@@ -1023,7 +1030,8 @@ ggplot(misclass24,
   labs(y="relative density of misclassified",
        title="misclassification in 24h heat for different days")
 
-
+# clean up
+rm(misclass24, misclass24_REAL)
 ```
 Recall that for 24h duration, Day 1 of serial transfer had 6h of extreme heat at the end, Day 2 was all extreme heat then returned to the "ambient" warm temperature only in the last few hours, and Days 3 & 4 were the recovery days with constant "ambient" warm temperature.
 
@@ -1093,7 +1101,7 @@ absDensity <- tmp %>% filter(community != "0_0_0_0") %>%
                 select(uniqID, Heat, Day, Heat_Day, Recov_Day, CommRich:veronii, Total_density:Conc_veronii)
 save(absDensity, file="./absolute_density_data.RData")
 
-rm(tmp, com)
+rm(tmp, com, contamin.df)
 ```
 
 ## Plot final time-series
@@ -1143,6 +1151,9 @@ absDen_forFit$Heat[which(absDen_forFit$Heat == 0)] <- "control"
 # !!! emmeans expects the control to be the very *last* level !!!
 absDen_forFit$Heat <- factor(absDen_forFit$Heat,
                              levels = c("6", "12", "24", "48", "control"))
+
+# clean up
+rm(com)
 ```
 
 After plotting, I also created another version of the full data that will be used for fitting the data to models: ``. It excludes the Day 0 data (as this will not be analyzed hereafter).
@@ -1155,6 +1166,47 @@ as implemented by `vegan`.
 For the total abundances, there are extinction (AKA 0's) and NA events in this data -- the extinction events in particular are important and meaningful parts of our data!! To deal with this issue, I will distinguish between 0's and NA's by using a $x + \epsilon$ transformation, where $\epsilon$ indicates samples that are below the threshold of detection. I will use $\epsilon$ as 0.25 \* the threshold of detection for
 the flow cytometer (which is 50 total fluorescent events in $146\mu L$).
 
+## Load community growth rates expectations
+
+We define "average growth rate of the community" either as the expectation from the inoculated communities (e.g., the quadruplet community has expected growth rate = mean of the 4 species). In other words, this assumes that all species that were inoculated in the community remain at equal ratios and therefore the average growth rate of a community is just the mean of the growth rates of the species that were inoculated there. This is called the `community_expected_mu`.
+
+We also define it as the mean of the realized communities by using the species mean relative densities in the no heat control condition. In other words, this takes into account the actual relative densities of the species that can hang out together across serial transfers and uses that as an expectation of the community's growth rate. This is called the `community_averaged_mu`.
+
+```{r, load_growth_rates30C}
+# load in the stationary phase growth rate estimates from Expt1
+load("expt1--all_growthcurve_data.RData")
+rm(ALL_data.df, derivs.df, TTD.df) # keep just the dataframe with the growth rate estimates (mu)
+Dil_growthrates.df <- Dil_growthrates.df %>% filter(Inoculum == "Stationary",
+                                                    Temp == 30,
+                                                    Sample %in% c("BSC001", "BSC005", "BSC019", "CK101")) %>%
+                        arrange(desc(mu))
+
+# calculate the average growth rate for the inoculated communities
+absDen_forFit <- absDen_forFit %>% mutate(community_expected_mu = (Dil_growthrates.df$mu[1]*putida + Dil_growthrates.df$mu[2]*protegens + Dil_growthrates.df$mu[3]*grimontii + Dil_growthrates.df$mu[4]*veronii)/(putida + protegens + grimontii + veronii))
+
+# calculate the average growth rate for the realized communities
+temp <- absDensity %>% filter(Heat == 0) %>% group_by(community) %>%
+          mutate(relDen_putida = Conc_putida/Total_density,
+                 relDen_protegens = Conc_protegens/Total_density,
+                 relDen_grimontii = Conc_grimontii/Total_density,
+                 relDen_veronii = Conc_veronii/Total_density) %>%
+            summarise(relDen_putida = median(relDen_putida, na.rm = TRUE),
+                      relDen_protegens = median(relDen_protegens, na.rm = TRUE),
+                      relDen_grimontii = median(relDen_grimontii, na.rm = TRUE),
+                      relDen_veronii = median(relDen_veronii, na.rm = TRUE)) %>%
+              mutate(community_averaged_mu = Dil_growthrates.df$mu[1]*relDen_putida + Dil_growthrates.df$mu[2]*relDen_protegens + Dil_growthrates.df$mu[3]*relDen_grimontii + Dil_growthrates.df$mu[4]*relDen_veronii)
+
+absDen_forFit <- inner_join(absDen_forFit, temp %>% select(community, community_averaged_mu))
+
+# remember to also add the average community growth rates to the other data frame (this one is used for the extinction analysis because Heat is numeric here)
+absDensity <- inner_join(absDensity,
+                         absDen_forFit %>%
+                           select(community, community_expected_mu, community_averaged_mu) %>%
+                             distinct())
+
+# clean up
+rm(temp, Dil_growthrates.df)
+```
 
 # Ordination of communities over time
 
@@ -1206,7 +1258,7 @@ Note that I also had to keep just 3 time points from the control treatment. I ch
 
 ```{r, NMDS_create_wide_matrix}
 # go back to the complete data that includes NA values for all 4 species on some days
-absDen_forOrd <- absDen_forFit %>% select(-Total_density, -Diversity)
+absDen_forOrd <- absDen_forFit %>% select(-Total_density, -Diversity, -community_expected_mu, -community_averaged_mu)
 # NA values with Total_density == NA are "true" missing data where I failed to record the flow cytometry measurements on that day due to technical difficulties/mistakes. These can be interpolated by using the median values from the remaining community replicates
   ## get the median values for all communities, days, and heat treatments
 median_vals <- absDen_forOrd %>% group_by(Heat, Day, community) %>%
@@ -1231,7 +1283,7 @@ for(i in missing_rows){
   rm(temp_med_val)
 }
 # clean up
-rm(median_vals, missing_rows)
+rm(median_vals, missing_rows, i)
 
 # on the other hand, NA values where Total_density is epsilon represent flow cytometry counts that were below the threshold of detection. In this case let's assume 1:1 ratios of inoculated strains at a total density equal to epsilon.
 epsilon <- min(absDen_forOrd$TotDen_plusEpsilon, na.rm=TRUE)
@@ -1250,7 +1302,7 @@ for(i in missing_rows){
 absDen_forOrd$Heat <- factor(absDen_forOrd$Heat, levels=c("control", "6", "12", "24", "48"))
 # finally we can drop the TotDen_plusEpsilon column
 absDen_forOrd <- absDen_forOrd %>% select(-TotDen_plusEpsilon)
-rm(epsilon, missing_rows)
+rm(epsilon, missing_rows, i)
 
 # first we have to widen the data:
 # create a column that indicates the treatment day as resistance, early recovery, or late recovery
@@ -1295,6 +1347,9 @@ scree_out <- NMDS.scree(abundance_matrix)
 plot(scree_out)
 # k=3 looks great
 try.NMDS <- metaMDS(abundance_matrix, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
+
+# check the stress value. It should be < 0.2, ideally even < 0.05. (But too low stress values can indicate too many 0 values)
+try.NMDS$stress
 
 # let's get a general idea of what this NMDS is separating...
 
@@ -1471,7 +1526,7 @@ The NMDS ordination results are significant by PERMANOVA but the assumptions of 
 # this code block is reserved for creating the png that will be Figure 3A of the main text
 
 # clean up
-rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test)
+rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test, absDen_forOrd, absDen_wide_forOrd, g)
 ```
 
 # Richness
@@ -1544,32 +1599,67 @@ species_div.df$Heat <- factor(species_div.df$Heat,
 # change variable names for nicer plotting
 levels(species_div.df$Heat)[2:5] <- paste(levels(species_div.df$Heat)[2:5], "hrs")
 species_div.df$Pprot_facet <- ifelse(species_div.df$protegens == 0, "P. protegens absent", "P. protegens present")
+
+# create a data.frame for plotting red rectangles in the background
+bckgrd <- data.frame(Heat=levels(species_div.df$Heat),
+                     HillDiv_q1 = c(0, rep(2.4, 4)),
+                     Day = c(0, rep(0.8, 4))) # all heat treatments start at the same time
+test <- rbind(bckgrd,
+              data.frame(Heat=levels(species_div.df$Heat),
+                         HillDiv_q1 = c(0, rep(2.4, 4)),
+                         Day = c(0, 1.1, 1.5, 1.9, 2.9))) # choose end points that look good even if not perfectly accurate
+
+png(filename = "Fig3_B.png", width = 6.98, height = 4.52, units = "in", res = 300)
+
 ggplot(species_div.df %>% filter(CommRich > 1),
-        # exclude monocultures it's not an informative summary for those as their richness will always be equal to 1 even when they go extinct. 
-       aes(y=HillDiv_q1, x=Day, colour=as.factor(CommRich))) +
-  facet_grid(Pprot_facet~as.factor(Heat)) +
+        # exclude monocultures bc richness is not informative for these: their richness will always be equal to 1 even when they go extinct. 
+       aes(y=HillDiv_q1, x=Day)) +
+  facet_grid(Pprot_facet ~ as.factor(Heat),
+             scales = "free_x", # allow x-axis of facets to freely choose their own max values
+             space = "free_x") + # allow facet columns to differ in their sizes
   # add red rectangles in the background to indicate heat treatment as in Fig 1.
-  geom_point(alpha=0.5) + # try beeswarm???
-  scale_colour_viridis_d(option = "viridis", begin=0.85, end=0) +
-  # consider gray scale points...
-  #scale_colour_grey(start=0.3, end=0) +
-  # you may have to play around with the border like Ella said
-  labs(y = "Species Richness", # 1st order Hill Diversity
-       colour = "Inoculated\nRichness") +
+  geom_ribbon(data=test, aes(ymin=0.95, ymax=2.4), # add a bit of padding above & below the points to look nice
+              position = "identity", # not sure this is needed now that I've switched away from geom_area? But it works so I don't care
+              fill="#C43131", alpha=0.25) + # use same colour and alpha as in fill for Fig. 1
+  # use beeswarm to jitter the points properly (alpha must be set to 0 bc of red rectangles)
+  geom_quasirandom(aes(fill=as.factor(CommRich)), # fill as a function of CommRich *must* be inside of this function otherwise it leads to a lot of problems with the geom_ribbon layer
+                   pch=21) + # use points with fill and border bc they look nicer here
+  scale_fill_viridis_d(option = "viridis", begin=0.85, end=0) +
+  scale_x_continuous(breaks=1:5, # tick marks & tick labels only at integers
+                     limits=c(0.5,NA), # add a little extra padding on the left side of x-axis bc I think it looks better
+                     expand = c(0, 0.2)) + # for some reason this prevents points in the 6h facet from getting squished up against the right border of the facet
+  scale_y_continuous(expand = c(0, 0)) + # this prevents ggplot from adding any extra padding in the y-axis; we already added the defauly +/- 0.05 padding manually when we specified geom_ribbon
+  labs(y = "Observed Richness", # 1st order Hill Diversity
+       fill = "Inoculated\nRichness") +
+  guides(fill = guide_legend(override.aes = list(size=3), # make the points bigger in the legend
+                             title.hjust = 0.5)) + # justify the 2nd line of legend title & points so they sit nicely under the 1st line
   theme(strip.background = element_rect(fill = "white", colour="black"),
         strip.text = element_text(color = "black"),
-        #axis.title.y = element_text(size = 12),
-        axis.text.x=element_blank())
+        legend.box.spacing = margin(0.5), # stretch plot rightwards & closer to its legend
+        legend.title = element_text(size=14)) # make legend title a little smaller
 
-rm(species_div.df)
+dev.off()
+#rm(species_div.df, bckgrd)
 ```
 
+Notice that for the control condition in the absence of protegens, there is a trend of decreasing species richness over time (e.g., as the communities reach equilibrium).
 
 ( ## Analysis?? )
 
 I have effect sizes on richness for resistance and recovery but I'm not sure if this is going to make it into the manuscript... (see the `analyze_temp_serial_transfer_expt--28Oct24.html` if you're interested).
 
 # Extinction
+
+Which communities were most likely to go extinct? How long did the heat duration have to be in order to drive those communities to extinction?
+
+The simplest hypothesis is that heat duration alone explains whether a community happens to go extinct.
+
+A slightly more complex hypothesis from the thermal performance curve data (Fig. 2) would
+be that any species that is resistant to heat should be less likely to go extinct, even long duration heat. Therefore we would expect that the presence/absence of the heat resistant species, P. putida, should explain whether a community goes extinct.
+
+Maddy's hypothesis in setting up this experiment was that a higher inoculated species richness would make a community more resistant to heat. So we are going to check whether the inoculated species richness has any effect.
+
+Another hypothesis that emerges from looking at the time series data itself (e.g., the ordination data) is that protegens has a unique effect on all communities where it is present. So let's check that model as well.
 
 ## Analysis
 
@@ -1587,66 +1677,176 @@ extinct.df$survived[extinct.df$uniqID == "24-07-08 Epoch G1"] <- 1
 extinct.df$protegens <- factor(extinct.df$protegens)
 
 # fit the models
-extinct.model0 <- glmmTMB(survived ~ Heat,
+ext_mod.heat <- glmmTMB(survived ~ Heat,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-#simulateResiduals(fittedModel = extinct.model0, plot = TRUE)
+#simulateResiduals(fittedModel = ext_mod.heat, plot = TRUE)
 
-extinct.model1 <- glmmTMB(survived ~ CommRich + Heat,
+ext_mod.heat_plus_rich <- glmmTMB(survived ~ CommRich + Heat,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-#simulateResiduals(fittedModel = extinct.model1, plot = TRUE)
+#simulateResiduals(fittedModel = ext_mod.heat_plus_rich, plot = TRUE)
 
-extinct.model2 <- glmmTMB(survived ~ CommRich*Heat,
+ext_mod.heat_plus_prot <- glmmTMB(survived ~ Heat + protegens,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-#simulateResiduals(fittedModel = extinct.model2, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.heat_plus_prot, plot = TRUE)
 
-extinct.model3 <- glmmTMB(survived ~ CommRich + Heat + protegens,
+ext_mod.heat_plus_putida <- glmmTMB(survived ~ Heat + putida,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-#simulateResiduals(fittedModel = extinct.model3, plot = TRUE)
+#simulateResiduals(fittedModel = ext_mod.heat_plus_putida, plot = TRUE)
 
-extinct.model4 <- glmmTMB(survived ~ CommRich + Heat*protegens,
+
+ext_mod.heat_by_rich <- glmmTMB(survived ~ CommRich*Heat,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-#simulateResiduals(fittedModel = extinct.model4, plot = TRUE)
+#simulateResiduals(fittedModel = ext_mod.heat_by_rich, plot = TRUE)
 
-#anova(extinct.model0, extinct.model1)
-#anova(extinct.model0, extinct.model2)
-#anova(extinct.model1, extinct.model2)
+ext_mod.heat_by_prot <- glmmTMB(survived ~ Heat*protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = ext_mod.heat_by_prot, plot = TRUE)
 
-#AIC(extinct.model0, extinct.model1, extinct.model2, extinct.model3, extinct.model4) %>% arrange(AIC)
-BIC(extinct.model0, extinct.model1, extinct.model2, extinct.model3, extinct.model4) %>% arrange(BIC)
 
-summary(extinct.model3)
-#summary(extinct.model4)
+ext_mod.heat_rich_prot <- glmmTMB(survived ~ CommRich + Heat + protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = ext_mod.heat_rich_prot, plot = TRUE)
 
-anova(extinct.model0, extinct.model3)
-anova(extinct.model2, extinct.model3)
-anova(extinct.model3, extinct.model4)
+ext_mod.rich_heatXprot <- glmmTMB(survived ~ CommRich + Heat*protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = ext_mod.rich_heatXprot, plot = TRUE)
+
+#anova(ext_mod.heat, ext_mod.heat_plus_rich)
+#anova(ext_mod.heat, ext_mod.heat_by_rich)
+#anova(ext_mod.heat_plus_rich, ext_mod.heat_by_rich)
+
+AIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida) %>% arrange(AIC)
+BIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida) %>% arrange(BIC)
+
+summary(ext_mod.heat_rich_prot)
+summary(ext_mod.heat_plus_prot)
+
+anova(ext_mod.heat, ext_mod.heat_plus_prot)
+anova(ext_mod.heat_plus_prot, ext_mod.heat_rich_prot)
+
+# and let's report the R-squared for this 
+efronRSquared(residual = residuals(ext_mod.heat_plus_prot, type="response"), 
+              predicted = predict(ext_mod.heat_plus_prot, type="response"), 
+              statistic = "EfronRSquared")
 ```
 
-Let's check if the average growth rate of the community at 30C can predict its extinction.
+This tells us that the most important predictors are: 1. the duration of the heat event and 2. the presence/absence of protegens in the inoculated community. This model explains about 50% of the variation in the data. We have little power to detect an effect of inoculated community richness on the extinction.
+
+A final possibility is that the growth rates of the different communities can explain whether they go extinct. Let's check if the average growth rate of the community at 30C can predict its extinction...
 
 ```{r, extinction_InnocRichness}
-# load in the stationary phase growth rate estimates from Expt1
+ext_mod.expect_mu <- glmmTMB(survived ~ Heat + community_expected_mu,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = ext_mod.expect_mu, plot = TRUE)
 
-# calculate the average growth rate for the inoculated communities
+ext_mod.exptmu_prot <- glmmTMB(survived ~ Heat + community_expected_mu + protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
 
+ext_mod.averaged_mu <- glmmTMB(survived ~ Heat + community_averaged_mu,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = ext_mod.averaged_mu, plot = TRUE)
 
+ext_mod.avemu_prot <- glmmTMB(survived ~ Heat + community_averaged_mu + protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = ext_mod.avemu_prot, plot = TRUE)
+
+summary(ext_mod.exptmu_prot)
+summary(ext_mod.avemu_prot)
+
+AIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot) %>% arrange(AIC)
+BIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot) %>% arrange(BIC)
+
+# wow, I'm shocked that this growth rate model is actually better. Let's double check that...
+anova(ext_mod.heat_plus_prot, ext_mod.exptmu_prot)
+anova(ext_mod.heat_plus_prot, ext_mod.avemu_prot)
+
+# and let's report the R-squared
+efronRSquared(residual = residuals(ext_mod.avemu_prot, type="response"), 
+              predicted = predict(ext_mod.avemu_prot, type="response"), 
+              statistic = "EfronRSquared")
 ```
 
+Ok, so neither the community_expected_mu nor the community_averaged_mu are as good predictors as just heat duration and presence/absence of protegens. But when we add the presence/absence of protegens to the community_averaged_mu, we get a very good model that's significantly better than the one reported above. It explains almost 75% of the variation.
+
 ## Plot
+
+Plot the best model against the data:
+
+```{r, extinction_plot}
+# create data.frame for plotting
+extinct.df <- cbind(extinct.df,
+                    predicted = predict(ext_mod.avemu_prot, type="response"))
+# plot the predictions against the data
+plot(ggplot(extinct.df,
+        aes(x=as.factor(Heat),
+            y=survived,
+            colour=community_averaged_mu, 
+            group=as.factor(community_averaged_mu))) +
+    facet_wrap(. ~ protegens,
+               labeller = as_labeller(c(`0`="P. protegens absent",
+                                        `1`="P. protegens present"))) +
+    geom_hline(yintercept = 0, colour="grey") +
+    geom_line(aes(y = predicted)) +
+    geom_jitter(alpha=0.6, width=0.1, height = 0.25) +
+    scale_y_continuous(breaks = c(0, 1)) +
+    scale_colour_viridis_c(option = "inferno", end=0.85) +
+    labs(x="Heat duration (hrs)",
+         y="Growth in well on last day?", colour="Community\nAveraged\nGrowth Rate"))
+
+# plot the effect sizes of the preferred model
+extinct_forplot <- data.frame(confint(ext_mod.avemu_prot))
+colnames(extinct_forplot)[1:2] <- c("loCI", "hiCI")
+extinct_forplot$predictor <- as.factor(rownames(extinct_forplot))
+# protegens effect size is not significant and has giant CI that obscure other estimates
+ggplot(extinct_forplot,
+       aes(x = Estimate, y = predictor)) +
+  geom_vline(xintercept = 0, colour="grey") +
+  geom_point() +
+  geom_errorbarh(aes(xmin = loCI, xmax = hiCI), height=0)
+
+# plot the effect sizes again without protegens
+ggplot(extinct_forplot %>% filter(predictor != "protegens1"),
+       aes(x = Estimate, y = predictor)) +
+  geom_vline(xintercept = 0, colour="grey") +
+  geom_point() +
+  geom_errorbarh(aes(xmin = loCI, xmax = hiCI), height=0)
+
+# clean up
+rm(extinct.df, ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_putida, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, extinct_forplot)
+```
 
 # Shannon diversity
 
+How is community diversity impacted during and after heat? Here we will have to be mindful to control for inoculated community richness as a nuisance variable (i.e., because we will always expect to see (less) more diversity in communities that were inoculated with more (less) species. But this is just part of our experimental design; we're not interested in this effect per se).
+
 ## Plot
+
+Let's first plot the Shannon diversity directly because we 
 
 ## Analysis
 
@@ -1677,49 +1877,49 @@ extinct.df$survived[extinct.df$uniqID == "24-07-08 Epoch G1"] <- 1
 extinct.df$protegens <- factor(extinct.df$protegens)
 
 # fit the models
-extinct.model0 <- glmmTMB(survived ~ Heat,
+ext_mod.heat <- glmmTMB(survived ~ Heat,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-simulateResiduals(fittedModel = extinct.model0, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.heat, plot = TRUE)
 
-extinct.model1 <- glmmTMB(survived ~ CommRich + Heat,
+ext_mod.heat_plus_rich <- glmmTMB(survived ~ CommRich + Heat,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-simulateResiduals(fittedModel = extinct.model1, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.heat_plus_rich, plot = TRUE)
 
-extinct.model2 <- glmmTMB(survived ~ CommRich*Heat,
+ext_mod.heat_by_rich <- glmmTMB(survived ~ CommRich*Heat,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-simulateResiduals(fittedModel = extinct.model2, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.heat_by_rich, plot = TRUE)
 
-extinct.model3 <- glmmTMB(survived ~ CommRich + Heat + protegens,
+ext_mod.heat_rich_prot <- glmmTMB(survived ~ CommRich + Heat + protegens,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-simulateResiduals(fittedModel = extinct.model3, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.heat_rich_prot, plot = TRUE)
 
-extinct.model4 <- glmmTMB(survived ~ CommRich + Heat*protegens,
+ext_mod.rich_heatXprot <- glmmTMB(survived ~ CommRich + Heat*protegens,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-simulateResiduals(fittedModel = extinct.model4, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.rich_heatXprot, plot = TRUE)
 
-anova(extinct.model0, extinct.model1)
-anova(extinct.model0, extinct.model2)
-anova(extinct.model1, extinct.model2)
+anova(ext_mod.heat, ext_mod.heat_plus_rich)
+anova(ext_mod.heat, ext_mod.heat_by_rich)
+anova(ext_mod.heat_plus_rich, ext_mod.heat_by_rich)
 
-AIC(extinct.model0, extinct.model1, extinct.model2, extinct.model3, extinct.model4) %>% arrange(AIC)
-BIC(extinct.model0, extinct.model1, extinct.model2, extinct.model3, extinct.model4) %>% arrange(BIC)
+AIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_by_rich, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot) %>% arrange(AIC)
+BIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_by_rich, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot) %>% arrange(BIC)
 
-summary(extinct.model3)
-summary(extinct.model4)
+summary(ext_mod.heat_rich_prot)
+summary(ext_mod.rich_heatXprot)
 
 # create data.frame for plotting
-extinct_predict <- cbind(extinct.model3$frame,
-                         predict(extinct.model3, type="response"))
+extinct_predict <- cbind(ext_mod.heat_rich_prot$frame,
+                         predict(ext_mod.heat_rich_prot, type="response"))
 colnames(extinct_predict)[c(1,4:5)] <- c("observed", "protegens", "predicted")
 # plot the predictions against the data
 plot(ggplot(extinct_predict,
@@ -1737,7 +1937,7 @@ plot(ggplot(extinct_predict,
          y="Growth in well on last day?", colour="Inoculated\nRichness"))
 
 # plot the effect sizes of the preferred model
-extinct_forplot <- data.frame(confint(extinct.model3))
+extinct_forplot <- data.frame(confint(ext_mod.heat_rich_prot))
 colnames(extinct_forplot)[1:2] <- c("loCI", "hiCI")
 extinct_forplot$predictor <- as.factor(rownames(extinct_forplot))
 ggplot(extinct_forplot,
@@ -1755,20 +1955,20 @@ ggplot(extinct_forplot,
 # when we run the model again considering inoculated richness as unordered factors
 extinct.df$CommRich <- factor(extinct.df$CommRich, ordered = FALSE)
 
-extinct.model3_categ <- glmmTMB(survived ~ CommRich + Heat + protegens,
+ext_mod.heat_rich_prot_categ <- glmmTMB(survived ~ CommRich + Heat + protegens,
                                 data = extinct.df,
                                 family = binomial,
                                 control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-simulateResiduals(fittedModel = extinct.model3_categ, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.heat_rich_prot_categ, plot = TRUE)
 
-extinct.model4_categ <- glmmTMB(survived ~ CommRich + Heat*protegens,
+ext_mod.rich_heatXprot_categ <- glmmTMB(survived ~ CommRich + Heat*protegens,
                                 data = extinct.df,
                                 family = binomial,
                                 control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-simulateResiduals(fittedModel = extinct.model4_categ, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.rich_heatXprot_categ, plot = TRUE)
 
 # plot the effect sizes of the categorical model
-extinct_forplot <- data.frame(confint(extinct.model3_categ))
+extinct_forplot <- data.frame(confint(ext_mod.heat_rich_prot_categ))
 colnames(extinct_forplot)[1:2] <- c("loCI", "hiCI")
 extinct_forplot$predictor <- as.factor(rownames(extinct_forplot))
 ggplot(extinct_forplot,
@@ -1778,13 +1978,13 @@ ggplot(extinct_forplot,
 # it seems as though both CommRich = 4 and the presence of protegens prevent extinction. But this is more likely to be explained by the fact that CommRich is correlated with the presence of protegens...
 
 # but this model is not preferred over the simpler one where CommRich is numeric
-anova(extinct.model3, extinct.model3_categ)
-AIC(extinct.model3, extinct.model3_categ, extinct.model4_categ) %>% arrange(AIC)
-BIC(extinct.model3, extinct.model3_categ, extinct.model4_categ) %>% arrange(BIC)
+anova(ext_mod.heat_rich_prot, ext_mod.heat_rich_prot_categ)
+AIC(ext_mod.heat_rich_prot, ext_mod.heat_rich_prot_categ, ext_mod.rich_heatXprot_categ) %>% arrange(AIC)
+BIC(ext_mod.heat_rich_prot, ext_mod.heat_rich_prot_categ, ext_mod.rich_heatXprot_categ) %>% arrange(BIC)
 
 # create data.frame for plotting
-extinct_predict <- cbind(extinct.model3_categ$frame,
-                         predict(extinct.model3_categ, type="response"))
+extinct_predict <- cbind(ext_mod.heat_rich_prot_categ$frame,
+                         predict(ext_mod.heat_rich_prot_categ, type="response"))
 colnames(extinct_predict)[c(1,4:5)] <- c("observed", "protegens", "predicted")
 # plot the predictions against the data
 plot(ggplot(extinct_predict,
@@ -1813,7 +2013,7 @@ ggplot(extinct.df %>% filter(survived == 1, CommRich != 1),
          y="Shannon diversity on last day", colour="Inoculated\nRichness")
 
 # clean up
-rm(extinct.model0, extinct.model1, extinct.model2, extinct.model3_categ, extinct.model3, extinct.model4, extinct_predict, extinct_forplot)
+rm(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_by_rich, ext_mod.heat_rich_prot_categ, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, extinct_predict, extinct_forplot)
 ```
 
 ## Putida at 48h of heat
