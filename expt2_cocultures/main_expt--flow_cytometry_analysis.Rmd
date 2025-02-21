@@ -1523,7 +1523,54 @@ Great!, This summarizes the same result that I found with the other indices: pre
 The NMDS ordination results are significant by PERMANOVA but the assumptions of that test might be violated because the dispersal is heterogeneous between groups. I think ANOSIM should be somewhat more robust to this problem because it uses ranks. The NMDS ordination results are significant by ANOSIM.
 
 ```{r, NMDS_plot_for_pub}
-# this code block is reserved for creating the png that will be Figure 3A of the main text
+################################
+# Plot figure for main text: Figure 3b
+################################
+# change protegens values for better plotting
+nmds_for_ggplot$P_protegens <- "absent"
+nmds_for_ggplot$P_protegens[nmds_for_ggplot$protegens == 1] <- "present"
+
+ellipse12_df$P_protegens <- "absent"
+ellipse12_df$P_protegens[ellipse12_df$protegens == 1] <- "present"
+
+ellipse13_df$P_protegens <- "absent"
+ellipse13_df$P_protegens[ellipse13_df$protegens == 1] <- "present"
+
+# change Heat values for better plotting
+levels(nmds_for_ggplot$Heat)[2:5] <- paste(levels(nmds_for_ggplot$Heat)[2:5], "hrs")
+levels(ellipse12_df$Heat)[2:5] <- paste(levels(ellipse12_df$Heat)[2:5], "hrs")
+levels(ellipse13_df$Heat)[2:5] <- paste(levels(ellipse13_df$Heat)[2:5], "hrs")
+
+# create the plot of 1 vs 2:
+plot1_2 <- ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
+            geom_point(aes(color = Heat, shape = P_protegens), size=2, alpha=0.4) + # adding different colours and shapes for points at different distances
+            geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=P_protegens), linewidth=1) + # adding covariance ellipses according to distance # use size argument if ggplot2 < v. 3.4.0
+            guides(color = guide_legend(override.aes = list(linetype=rep(NA,5),# removes lines from colour part of the legend
+                                                  alpha=1, size=3)), # make the points opaque and bigger in the colour part of the legend
+            shape = guide_legend(override.aes = list(size=3))) + # make the points bigger in the greyscale part of the legend
+            scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9)
+
+# plot 1 vs 2 with the legend ... I will extract the legend from here
+png(filename="Fig3_A_legend.png", width = 3.48, height = 3.41, units = "in", res=300)
+print(plot1_2)
+dev.off()
+
+
+# plot 1 vs 2 without the legend
+png(filename="Fig3_A_axis1vs2.png", width = 5.35, height = 3.78, units = "in", res=300)
+print(plot1_2 + theme(legend.position="none"))
+dev.off()
+
+# plot 1 vs 3 without the legend
+png(filename="Fig3_A_axis1vs3.png", width = 5.35, height = 3.78, units = "in", res=300)
+
+ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
+    geom_point(aes(color = Heat, shape = P_protegens), size=2, alpha=0.4) + 
+    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=P_protegens), linewidth=1) + 
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    theme(legend.position="none")
+
+dev.off()
 
 # clean up
 rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test, absDen_forOrd, absDen_wide_forOrd, g)
@@ -1639,7 +1686,9 @@ ggplot(species_div.df %>% filter(CommRich > 1),
         legend.title = element_text(size=14)) # make legend title a little smaller
 
 dev.off()
-#rm(species_div.df, bckgrd)
+
+# clean up
+rm(species_div.df, bckgrd, test)
 ```
 
 Notice that for the control condition in the absence of protegens, there is a trend of decreasing species richness over time (e.g., as the communities reach equilibrium).
