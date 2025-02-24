@@ -66,9 +66,8 @@ theme_set(fave_theme)
 species_4pal_alphabetical = palette.colors(8, palette = "R4")[c(3, 5, 7, 2)] #in alphabetical order
 species_4pal_speed = palette.colors(8, palette = "R4")[c(7, 5, 3, 2)] #from fast to slow
 
-#### THIS NEEDS TO BE UPDATED BELOW!!!
 # define a palette for plotting the 3 treatment days
-trtmt_pal = brewer.pal(4, "Set2")[c(1,3:4)]
+trtmt_pal = brewer.pal(4, "Set2")[c(4, 3, 1)]
 
 # define a palette for plotting the heat duration
 control_to_48h_pal <- scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9)
@@ -1120,7 +1119,8 @@ for(com in unique(absDensity$community)) {
 }
 
 # in the analyses below we will be interested in shannon diversity so let's already make a column for that
-absDensity$Diversity <- diversity(absDensity[,c("Conc_putida", "Conc_protegens", "Conc_grimontii", "Conc_veronii")])
+absDensity$Diversity <- diversity(absDensity[,c("Conc_putida", "Conc_protegens", "Conc_grimontii", "Conc_veronii")],
+                                  index = "shannon")
 
 # first let's remove the empty wells as we won't need them anymore
 absDensity <- absDensity %>% filter(community != "0_0_0_0")
@@ -1166,23 +1166,34 @@ as implemented by `vegan`.
 For the total abundances, there are extinction (AKA 0's) and NA events in this data -- the extinction events in particular are important and meaningful parts of our data!! To deal with this issue, I will distinguish between 0's and NA's by using a $x + \epsilon$ transformation, where $\epsilon$ indicates samples that are below the threshold of detection. I will use $\epsilon$ as 0.25 \* the threshold of detection for
 the flow cytometer (which is 50 total fluorescent events in $146\mu L$).
 
-## Load community growth rates expectations
+## Load community growth traits expectations
 
-We define "average growth rate of the community" either as the expectation from the inoculated communities (e.g., the quadruplet community has expected growth rate = mean of the 4 species). In other words, this assumes that all species that were inoculated in the community remain at equal ratios and therefore the average growth rate of a community is just the mean of the growth rates of the species that were inoculated there. This is called the `community_expected_mu`.
+We define "average growth rate of the community" either as the expectation from the inoculated communities (e.g., the quadruplet community has expected growth rate = mean of the 4 species). In other words, this assumes that all species that were inoculated in the community remain at equal ratios and therefore the average growth rate of a community is just the mean of the growth rates of the species that were inoculated there. This is called the `community_expected_mu`. (Recall that if we thought the communities would stay fixed for the equal species ratios that we inoculated them at, then we should use the geometric mean to calculate the community growth rate. We use the arithmetic mean because we *a priori* believe that the communities will tend to be dominated by the faster growing species.)
 
 We also define it as the mean of the realized communities by using the species mean relative densities in the no heat control condition. In other words, this takes into account the actual relative densities of the species that can hang out together across serial transfers and uses that as an expectation of the community's growth rate. This is called the `community_averaged_mu`.
+
+Another trait that we assayed was whether species are sensitive or resistant to 40C heat (resistance is a binary trait: either TRUE or FALSE). We define communities as expected to be resistant when at least one of the inoculated species is resistant. We define communities as expected to be sensitive when none of the species are resistant.
 
 ```{r, load_growth_rates30C}
 # load in the stationary phase growth rate estimates from Expt1
 load("expt1--all_growthcurve_data.RData")
 rm(ALL_data.df, derivs.df, TTD.df) # keep just the dataframe with the growth rate estimates (mu)
-Dil_growthrates.df <- Dil_growthrates.df %>% filter(Inoculum == "Stationary",
-                                                    Temp == 30,
-                                                    Sample %in% c("BSC001", "BSC005", "BSC019", "CK101")) %>%
+
+# a look-up table for growth rates at 30C
+growthrates.df <- Dil_growthrates.df %>% filter(Inoculum == "Stationary",
+                                                Temp == 30,
+                                                Sample %in% c("BSC001", "BSC005", "BSC019", "CK101")) %>%
                         arrange(desc(mu))
 
+# a look-up table for resistance to 40C
+resist.df <- Dil_growthrates.df %>% filter(Inoculum == "Stationary",
+                                           Temp == 40,
+                                           Sample %in% c("BSC001", "BSC005", "BSC019", "CK101")) %>%
+                mutate(resistant = ifelse(mu>0, 1, 0)) %>%
+                  arrange(match(Sample, c("BSC001", "CK101", "BSC019", "BSC005")))
+
 # calculate the average growth rate for the inoculated communities
-absDen_forFit <- absDen_forFit %>% mutate(community_expected_mu = (Dil_growthrates.df$mu[1]*putida + Dil_growthrates.df$mu[2]*protegens + Dil_growthrates.df$mu[3]*grimontii + Dil_growthrates.df$mu[4]*veronii)/(putida + protegens + grimontii + veronii))
+absDen_forFit <- absDen_forFit %>% mutate(community_expected_mu = (growthrates.df$mu[1]*putida + growthrates.df$mu[2]*protegens + growthrates.df$mu[3]*grimontii + growthrates.df$mu[4]*veronii)/(putida + protegens + grimontii + veronii))
 
 # calculate the average growth rate for the realized communities
 temp <- absDensity %>% filter(Heat == 0) %>% group_by(community) %>%
@@ -1194,18 +1205,24 @@ temp <- absDensity %>% filter(Heat == 0) %>% group_by(community) %>%
                       relDen_protegens = median(relDen_protegens, na.rm = TRUE),
                       relDen_grimontii = median(relDen_grimontii, na.rm = TRUE),
                       relDen_veronii = median(relDen_veronii, na.rm = TRUE)) %>%
-              mutate(community_averaged_mu = Dil_growthrates.df$mu[1]*relDen_putida + Dil_growthrates.df$mu[2]*relDen_protegens + Dil_growthrates.df$mu[3]*relDen_grimontii + Dil_growthrates.df$mu[4]*relDen_veronii)
+              mutate(community_averaged_mu = growthrates.df$mu[1]*relDen_putida + growthrates.df$mu[2]*relDen_protegens + growthrates.df$mu[3]*relDen_grimontii + growthrates.df$mu[4]*relDen_veronii)
 
-absDen_forFit <- inner_join(absDen_forFit, temp %>% select(community, community_averaged_mu))
+# get the community resistances
+print(resist.df %>% select(Species, Sample, Temp, mu, resistant)) # recall that only putida is resistant
+# so it's easy to get community resistance because it's just the presence/absence of putida
 
-# remember to also add the average community growth rates to the other data frame (this one is used for the extinction analysis because Heat is numeric here)
+# add the information to the full data set
+absDen_forFit <- inner_join(absDen_forFit, temp %>% select(community, community_averaged_mu)) %>%
+                  mutate(resistant = putida)
+
+# remember to also add the community growth rates and resistances to the other data frame (this one is used for the extinction analysis because Heat is numeric here)
 absDensity <- inner_join(absDensity,
                          absDen_forFit %>%
-                           select(community, community_expected_mu, community_averaged_mu) %>%
+                           select(community, community_expected_mu, community_averaged_mu, resistant) %>%
                              distinct())
 
 # clean up
-rm(temp, Dil_growthrates.df)
+rm(temp, Dil_growthrates.df, resist.df, growthrates.df)
 ```
 
 # Ordination of communities over time
@@ -1573,7 +1590,7 @@ ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
 dev.off()
 
 # clean up
-rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test, absDen_forOrd, absDen_wide_forOrd, g)
+rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test, absDen_forOrd, absDen_wide_forOrd, g, plot1_2)
 ```
 
 # Richness
@@ -1714,9 +1731,9 @@ Another hypothesis that emerges from looking at the time series data itself (e.g
 
 ```{r, extinction_InnocRichness}
 # keep just the data on the last day of each time series
-extinct.df <- absDensity %>% filter(Recov_Day == 2, CommRich > 0)
+extinct.df <- absDensity %>% filter(Recov_Day == 2)
 extinct.df <- rbind(extinct.df,
-                    absDensity %>% filter(Heat == 0, Day == 5, CommRich > 0))
+                    absDensity %>% filter(Heat == 0, Day == 5))
 # binary vector of survival or extinction
 extinct.df <- extinct.df %>% mutate(survived = ifelse(Total_density > 0, 1, 0))
 ### note that sample "24-07-08 Epoch G1" has missing data on Day 5 even though we know from the OD data that it survived.
@@ -1744,11 +1761,11 @@ ext_mod.heat_plus_prot <- glmmTMB(survived ~ Heat + protegens,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
 simulateResiduals(fittedModel = ext_mod.heat_plus_prot, plot = TRUE)
 
-ext_mod.heat_plus_putida <- glmmTMB(survived ~ Heat + putida,
+ext_mod.heat_plus_resist <- glmmTMB(survived ~ Heat + resistant,
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-#simulateResiduals(fittedModel = ext_mod.heat_plus_putida, plot = TRUE)
+#simulateResiduals(fittedModel = ext_mod.heat_plus_resist, plot = TRUE)
 
 
 ext_mod.heat_by_rich <- glmmTMB(survived ~ CommRich*Heat,
@@ -1780,8 +1797,8 @@ ext_mod.rich_heatXprot <- glmmTMB(survived ~ CommRich + Heat*protegens,
 #anova(ext_mod.heat, ext_mod.heat_by_rich)
 #anova(ext_mod.heat_plus_rich, ext_mod.heat_by_rich)
 
-AIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida) %>% arrange(AIC)
-BIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida) %>% arrange(BIC)
+AIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist) %>% arrange(AIC)
+BIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist) %>% arrange(BIC)
 
 summary(ext_mod.heat_rich_prot)
 summary(ext_mod.heat_plus_prot)
@@ -1810,7 +1827,7 @@ ext_mod.exptmu_prot <- glmmTMB(survived ~ Heat + community_expected_mu + protege
                           data = extinct.df,
                           family = binomial,
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
-#simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
+simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
 
 ext_mod.averaged_mu <- glmmTMB(survived ~ Heat + community_averaged_mu,
                           data = extinct.df,
@@ -1824,51 +1841,66 @@ ext_mod.avemu_prot <- glmmTMB(survived ~ Heat + community_averaged_mu + protegen
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
 simulateResiduals(fittedModel = ext_mod.avemu_prot, plot = TRUE)
 
+ext_mod.exptmu_prot_resist <- glmmTMB(survived ~ Heat + community_expected_mu + protegens + resistant,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = ext_mod.exptmu_prot_resist, plot = TRUE)
+
 summary(ext_mod.exptmu_prot)
 summary(ext_mod.avemu_prot)
+# this model does not converge bc of the experimental design (some predictor combinations are unitary)
+summary(ext_mod.exptmu_prot_resist)
 
-AIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot) %>% arrange(AIC)
-BIC(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_putida, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot) %>% arrange(BIC)
+AIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(AIC)
+BIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(BIC)
 
 # wow, I'm shocked that this growth rate model is actually better. Let's double check that...
 anova(ext_mod.heat_plus_prot, ext_mod.exptmu_prot)
 anova(ext_mod.heat_plus_prot, ext_mod.avemu_prot)
 
 # and let's report the R-squared
+efronRSquared(residual = residuals(ext_mod.exptmu_prot, type="response"), 
+              predicted = predict(ext_mod.exptmu_prot, type="response"), 
+              statistic = "EfronRSquared")
+
 efronRSquared(residual = residuals(ext_mod.avemu_prot, type="response"), 
               predicted = predict(ext_mod.avemu_prot, type="response"), 
               statistic = "EfronRSquared")
 ```
 
-Ok, so neither the community_expected_mu nor the community_averaged_mu are as good predictors as just heat duration and presence/absence of protegens. But when we add the presence/absence of protegens to the community_averaged_mu, we get a very good model that's significantly better than the one reported above. It explains almost 75% of the variation.
+Ok, so neither the community_expected_mu nor the community_averaged_mu are as good predictors as just heat duration and presence/absence of protegens. But when we add the presence/absence of protegens to either the community_expected_mu or community_averaged_mu, we get very good models that are significantly better than the one reported above. e.g., The model with just heat duration and protegens presence/absence explains 50% of the variation, while models explain 70-75% of the variation.
+
+Although the community_averaged_mu is a better fit, I prefer to use the community_expected_mu because it fits better in the framework of "can we predict microbial community dynamics from the species traits?" Moreover, the fit (at least for the extinction data) is not that much worse for the community_expected_mu as compared to the community_averaged_mu -- and both are insufficient to explain the data without the effect of protegens anyway!
 
 ## Plot
 
-Plot the best model against the data:
+Plot the preferred model against the data: growth on final day ~ heat duration + protegens present + community_expected_mu
 
 ```{r, extinction_plot}
 # create data.frame for plotting
 extinct.df <- cbind(extinct.df,
-                    predicted = predict(ext_mod.avemu_prot, type="response"))
+                    predicted = predict(ext_mod.exptmu_prot, type="response"))
 # plot the predictions against the data
 plot(ggplot(extinct.df,
         aes(x=as.factor(Heat),
             y=survived,
-            colour=community_averaged_mu, 
-            group=as.factor(community_averaged_mu))) +
+            colour=community_expected_mu, 
+            group=as.factor(community_expected_mu))) +
     facet_wrap(. ~ protegens,
                labeller = as_labeller(c(`0`="P. protegens absent",
                                         `1`="P. protegens present"))) +
     geom_hline(yintercept = 0, colour="grey") +
     geom_line(aes(y = predicted)) +
     geom_jitter(alpha=0.6, width=0.1, height = 0.25) +
+      # would be nice to use beeswarm package but not sure how to do that as y is factorial here but numeric for the model predictions
     scale_y_continuous(breaks = c(0, 1)) +
     scale_colour_viridis_c(option = "inferno", end=0.85) +
     labs(x="Heat duration (hrs)",
-         y="Growth in well on last day?", colour="Community\nAveraged\nGrowth Rate"))
+         y="Growth in well on last day?", colour="Community\nExpected\nGrowth Rate"))
 
 # plot the effect sizes of the preferred model
-extinct_forplot <- data.frame(confint(ext_mod.avemu_prot))
+extinct_forplot <- data.frame(confint(ext_mod.exptmu_prot))
 colnames(extinct_forplot)[1:2] <- c("loCI", "hiCI")
 extinct_forplot$predictor <- as.factor(rownames(extinct_forplot))
 # protegens effect size is not significant and has giant CI that obscure other estimates
@@ -1886,20 +1918,1078 @@ ggplot(extinct_forplot %>% filter(predictor != "protegens1"),
   geom_errorbarh(aes(xmin = loCI, xmax = hiCI), height=0)
 
 # clean up
-rm(extinct.df, ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_putida, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, extinct_forplot)
+rm(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_resist, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, extinct_forplot, ext_mod.exptmu_prot_resist)
 ```
 
 # Shannon diversity
 
 How is community diversity impacted during and after heat? Here we will have to be mindful to control for inoculated community richness as a nuisance variable (i.e., because we will always expect to see (less) more diversity in communities that were inoculated with more (less) species. But this is just part of our experimental design; we're not interested in this effect per se).
 
-## Plot
+Let's first plot the Shannon diversity directly to get an idea of what we're dealing with:
 
-Let's first plot the Shannon diversity directly because we 
+```{r, shannonD_prelim_plot}
+ggplot(absDen_forFit %>% filter(CommRich > 1), # monocultures are meaningless for diversity
+       aes(y=Diversity, x=Day, fill=as.factor(CommRich))) +
+  facet_grid(protegens~as.factor(Heat)) +
+  geom_quasirandom(alpha=0.7, pch=21) +
+  scale_fill_viridis_d(option = "viridis", begin=0.85, end=0) +
+  labs(y = "Shannon Diversity",
+       fill = "Inoculated\nRichness")
+```
 
-## Analysis
+## Choose GLM Family
+
+Maddy and Gerard suggest that I use the full model to estimate effect size then emmeans to
+estimate the effect size post-hoc. I'm tailouring this analysis on the example script that
+Nico sent me (`Script_simplified for Hermina.R`).
+
+One unique attribute of my experimental design is that the Day used as control differs
+with heat duration (e.g., last day of recovery for 6h heat duration is Day 3 but last day
+of recovery for 48h is Day 5). Our solution for this is to run separate models
+for each heat treatment with its respective controls (i.e., 4 models in total). To make
+sure that the effect sizes will be directly comparable across the models (especially with
+respect to the standard deviation), Gerard suggested that I scale the whole data prior to
+splitting it up into 4 (but not centering it as that will give me negative values that I
+can't really use a ). Finally, if/when testing for significance it will then be necessary
+to control for multiple testing (e.g., using a Bonferroni correction).
+
+Note that for diversity I am considering CommRich as a numeric (which assumes a linear effect of community richness, e.g., where 4 species is 2 * the effect of 2 species).
+Initially I tried playing around with CommRich as an ordered (& unordered) factor. But I
+found that `glmmTMB` was choosing to drop different predictors because it was upset that
+my model was overparameterized. This was particularly annoying as it was dropping the
+estimates for the control treatments...
+
+The first thing we need to do is to pick which GLM family of distributions looks best for our data:
+
+```{r, diversity_glmFamily}
+# remove the monocultures from the data
+diversity_forFit <- absDen_forFit %>% filter(CommRich > 1) %>% # diversity is nonsense for monocultures
+                        select(-Total_density, -TotDen_plusEpsilon,
+                                      -Conc_putida, -Conc_protegens, -Conc_grimontii, -Conc_veronii)
+
+# add a column indicating whether the replicate survived
+#diversity_forFit <- inner_join(diversity_forFit,
+#                               extinct.df %>% select(uniqID, Heat, survived),
+#                               by = c("uniqID", "Heat"))
+
+# scale the data by its standard deviation
+diversity_forFit$Diversity_scale <- scale(diversity_forFit$Diversity,
+                                          scale = sd(diversity_forFit$Diversity, na.rm =  TRUE),
+                                          center = FALSE)
+
+# the max re-scaled value is 5.38 and 38% of the data is 0's
+# so try gamma and lognormal distributions (maybe also Gaussian just to check that it's a bad fit?)
+summary(diversity_forFit$Diversity_scale)
+sum(diversity_forFit$Diversity_scale == 0, na.rm = TRUE) / length(diversity_forFit$Diversity_scale)
+
+
+# let's compare different GLM families
+try_gaussian <- glmmTMB(Diversity_scale ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                        data = diversity_forFit,
+                        control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_gaussian, plot = TRUE)
+
+print("gamma family with zero-inflated model:")
+try_gamma0 <- glmmTMB(Diversity_scale ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                     data = diversity_forFit,
+                     family = ziGamma,
+                     ziformula = ~1, # this needs to be added because there are 0 values in the data
+                     control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_gamma0, plot = TRUE)
+
+print("lognormal family with zero-inflated model:")
+try_lognorm0 <- glmmTMB(Diversity_scale ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                       data = diversity_forFit,
+                       family = lognormal,
+                       ziformula = ~1, # this needs to be added because there are 0 values in the data
+                       control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_lognorm0, plot = TRUE)
+
+print("log(x+1) transformed data, lognormal family with zero-inflated model:")
+try_LOGlognorm0 <- glmmTMB(log(Diversity_scale+1) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                          data = diversity_forFit,
+                          family = lognormal,
+                          ziformula = ~1, # I'm keeping this as 0-inflated lognormal alone was already over-dispersed. So I want to see if the log(x+1) transformation sufficiently brings in the long tail.
+                          control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_LOGlognorm0, plot = TRUE)
+
+try_negbinom <- glmmTMB(as.integer(Diversity_scale*1000) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                       data = diversity_forFit,
+                       family = nbinom2,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_negbinom, plot = TRUE)
+
+try_negbinom0 <- glmmTMB(as.integer(Diversity_scale*1000) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                         data = diversity_forFit,
+                         family = nbinom2,
+                         ziformula = ~1, # try zero inflated distribution
+                         control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_negbinom0, plot = TRUE)
+
+try_poisson <- glmmTMB(as.integer(Diversity_scale*1000) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                         data = diversity_forFit,
+                         family = genpois,
+                         control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_poisson, plot = TRUE)
+
+try_poisson0 <- glmmTMB(as.integer(Diversity_scale*1000) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                         data = diversity_forFit,
+                         family = genpois,
+                         ziformula = ~1, # try zero inflated distribution
+                         control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_poisson0, plot = TRUE)
+
+################################################
+
+# I would generally prefer to use a zero inflated distribution but those are annoying to calculate effect sizes for (by posthoc emmeans). So let's do the classic hack and 
+  # find the smallest non-zero value in the rescaled diversity estimate
+smallest_diversity <- min(diversity_forFit$Diversity_scale[diversity_forFit$Diversity_scale != 0], na.rm=TRUE)
+# now add 1/100th of that value to all the diversity estimates and re-do the fit for the family that looked best above
+diversity_forFit$Diversity_scalePLUSepsilon <- diversity_forFit$Diversity_scale + smallest_diversity/100
+
+print("data transformed (D + epsilon), lognormal family:")
+# this looks just awful:
+try_lognorm_plusE <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                             data = diversity_forFit,
+                             family = lognormal,
+                             control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_lognorm_plusE, plot = TRUE)
+
+#Let's see if we can make things better in any way by using a log transformation? (this model looked the best with zero-inflation above)
+try_lognorm_logPLUSe <- glmmTMB(log(Diversity_scale+1+smallest_diversity) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                          data = diversity_forFit,
+                          family = lognormal,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_lognorm_logPLUSe, plot = TRUE)
+
+# let's just try other families...
+try_gaussian_plusE <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                        data = diversity_forFit,
+                        control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_gaussian_plusE, plot = TRUE)
+
+print("data transformed (D + epsilon), gamma family:")
+try_gamma_plusE <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                     data = diversity_forFit,
+                     family = Gamma,
+                     control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_gamma_plusE, plot = TRUE)
+
+try_negbinom_plusE <- glmmTMB(as.integer(Diversity_scalePLUSepsilon*1000) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                       data = diversity_forFit,
+                       family = nbinom2,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_negbinom_plusE, plot = TRUE)
+
+try_poisson_plusE <- glmmTMB(as.integer(Diversity_scalePLUSepsilon*1000) ~ CommRich:Day + Heat:Day + CommRich:Heat:Day,
+                         data = diversity_forFit,
+                         family = genpois,
+                         control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_poisson_plusE, plot = TRUE)
+
+
+# let's check this with AIC and BIC
+AIC(try_gaussian, try_gamma0, try_lognorm0, try_LOGlognorm0,
+    try_negbinom, try_negbinom0, try_poisson, try_poisson0, try_lognorm_plusE, try_lognorm_logPLUSe, try_gaussian_plusE, try_gamma_plusE, try_negbinom_plusE, try_poisson_plusE) %>% arrange(AIC)
+BIC(try_gaussian, try_gamma0, try_lognorm0, try_LOGlognorm0,
+    try_negbinom, try_negbinom0, try_poisson, try_poisson0, try_lognorm_plusE, try_lognorm_logPLUSe, try_gaussian_plusE, try_gamma_plusE, try_negbinom_plusE, try_poisson_plusE) %>% arrange(BIC)
+
+# clean up
+rm(try_gaussian, try_gamma0, try_lognorm0, try_LOGlognorm0, try_negbinom, try_negbinom0, try_poisson, try_poisson0, try_lognorm_plusE, try_lognorm_logPLUSe, try_gaussian_plusE, try_gamma_plusE, try_negbinom_plusE, try_poisson_plusE, smallest_diversity)
+```
+
+According to the residuals, the zero-inflated negative binomial and the zero-inflated
+lognormal are about equally okay-ish. (We could also take the AIC & BIC values in
+consideration for our decision but that is far less important.) My preference would be to go with the zero-inflated lognormal. The reason for this is because my
+understanding is that the most important thing to consider when selecting a GLM family is
+which family would *a priori* be the most natural choice. For diversity data, the Gamma or
+lognormal distributions are the most natural choices *a priori* because, for 4 species,
+the Shannon diversity data is a continuous variable between 0 and 1.386294. Therefore I
+think it makes sense to choose the lognormal (even if its residuals are not perfect).
+
+For this data I would generally prefer to use one of the zero inflated distributions but we are interested in the effect sizes (emmeans & posthoc analyses). The problem with the zero inflated distribution is that it leads to very confusing looking effect sizes when I do the downstream analyses.
+This is because the effect sizes are split up over the conditional and the
+zero-inflated parts of the model. The overall effect size is: (1 - zi)\*(cond mean). See
+[this stackover flow
+thread](https://stackoverflow.com/questions/62351158/contrasts-with-zero-inflated-glmmtmb). The practical problem is that it just looks really weird for this data.
+
+To get around this issue, I have transformed the re-scaled data to add a small value (`min(rescaled diversity)/100`) to all diversity estimates such
+that we remove the zero's. This way we will no longer need to use a zero-inflated part in
+the model and the effect sizes will be simpler to explain. (Especially because I think I
+am losing a lot of power for the 48h treatment as a result of almost everything literally being 0.)
+
+My final decision is to use the $D + \epsilon$ transformed data and a lognormal family of distributions. It doesn't have the best residuals but it strikes the right compromise of *a priori* justifiable as well as useful and interpretable for the analysis we're interested in.
+
+Finally, note that in the model fitting above I consider Day as a numeric predictor. This is
+because I want to decide on the GLM family by considering the complete data. (& I was having
+problems with Day as an un/ordered factor...)
+
+## Compare fit of different models to data subsets
+
+For the rest of the analysis below, I consider the effect of day
+(which is called `Trtmt_Day`) as a factor representing either resistance (i.e., on the
+last day of heat) or recovery. To do this I need to subset the data to include only resistance, 1st day post-heat, and last day post-heat for the heat treatment. And I need to keep exactly the same days of the control treatment. I create this data subset for each heat treatment duration (so 4 data subsets in total).
+
+We want to find which model is the best fit for all the data subsets.
+
+```{r, diversityPlus_subset&modelfit}
+####################
+# 6h heat duration
+####################
+# grab just the treatment with its associated control data
+diversity_6h <- rbind(diversity_forFit %>% filter(Heat == "6"),
+                      diversity_forFit %>% filter(Heat == "control", Day < 4))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+diversity_6h$Trtmt_Day <- "resist"
+diversity_6h$Trtmt_Day[diversity_6h$Day == 2] <- "recov_1"
+diversity_6h$Trtmt_Day[diversity_6h$Day == 3] <- "recov_2"
+
+# fit different models:
+divers6h_H0 <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers6h_H0, plot = TRUE)
+divers6h_H0_by <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich*Heat*Trtmt_Day,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+
+divers6h_resist <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + resistant,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers6h_resist, plot = TRUE)
+
+divers6h_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + protegens,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers6h_prot, plot = TRUE)
+
+divers6h_BYprot <- glmmTMB(Diversity_scalePLUSepsilon ~ Heat*Trtmt_Day*protegens + CommRich,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers6h_BYprot, plot = TRUE)
+
+divers6h_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + community_expected_mu,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers6h_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers6h_BYprot_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers6h_BYprot_exptmu, plot = TRUE)
+
+divers6h_BYprot_protXexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu*protegens,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers6h_BYexptmu_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu + protegens,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers6h_BYprot_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens*community_expected_mu,
+                       data = diversity_6h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+# check preferred models
+anova(divers6h_H0, divers6h_prot)
+anova(divers6h_prot, divers6h_BYexptmu_prot)
+
+AIC(divers6h_H0, divers6h_H0_by, divers6h_resist, divers6h_prot, divers6h_BYprot, divers6h_exptmu, divers6h_BYprot_exptmu, divers6h_BYexptmu, divers6h_BYprot_BYexptmu, divers6h_BYexptmu_prot, divers6h_BYprot_protXexptmu) %>% arrange(AIC)
+BIC(divers6h_H0, divers6h_H0_by, divers6h_resist, divers6h_prot, divers6h_BYprot, divers6h_exptmu, divers6h_BYprot_exptmu, divers6h_BYexptmu, divers6h_BYprot_BYexptmu, divers6h_BYexptmu_prot, divers6h_BYprot_protXexptmu) %>% arrange(BIC)
+
+# For the 6h data subset: there is no clear reason to prefer the more complex model over the simpler one
+summary(divers6h_prot)
+# here are the summary statistics for the more complex one:
+summary(divers6h_BYexptmu_prot)
+
+
+# create data.frame for plotting
+divers_predict <- cbind(divers6h_BYprot$frame,
+                        predict(divers6h_BYprot, type="response"))
+colnames(divers_predict)[c(1,6)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day, y=observed, colour=as.factor(CommRich))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted, group=as.factor(CommRich))) +
+  scale_y_log10() +
+  scale_colour_viridis_d(option = "viridis", begin=0.1, end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="CommRich",
+       title="divers6h_BYprot model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers6h_BYprot_exptmu$frame,
+                        predict(divers6h_BYprot_exptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers6h_BYprot_exptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers6h_BYprot_protXexptmu$frame,
+                        predict(divers6h_BYprot_protXexptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers6h_BYprot_protXexptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers6h_BYexptmu_prot$frame,
+                        predict(divers6h_BYexptmu_prot, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers6h_BYexptmu_prot model predictions")
+# cleanup
+rm(divers_predict)
+
+####################
+# 12h heat duration
+####################
+# grab just the treatment with its associated control data
+diversity_12h <- rbind(diversity_forFit %>% filter(Heat == "12", Day > 1),
+                       diversity_forFit %>% filter(Heat == "control", Day > 1, Day != 5))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+diversity_12h$Trtmt_Day <- "resist"
+diversity_12h$Trtmt_Day[diversity_12h$Day == 3] <- "recov_1"
+diversity_12h$Trtmt_Day[diversity_12h$Day == 4] <- "recov_2"
+
+# fit different models:
+divers12h_H0 <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers12h_H0, plot = TRUE)
+divers12h_H0_by <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich*Heat*Trtmt_Day,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+
+divers12h_resist <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + resistant,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers12h_resist, plot = TRUE)
+
+divers12h_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + protegens,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers12h_prot, plot = TRUE)
+
+divers12h_BYprot <- glmmTMB(Diversity_scalePLUSepsilon ~ Heat*Trtmt_Day*protegens + CommRich,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers12h_BYprot, plot = TRUE)
+
+divers12h_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + community_expected_mu,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers12h_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers12h_BYprot_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers12h_BYprot_exptmu, plot = TRUE)
+
+divers12h_BYexptmu_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu + protegens,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers12h_BYprot_protXexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu*protegens,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers12h_BYprot_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens*community_expected_mu,
+                       data = diversity_12h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+# check preferred models
+anova(divers12h_H0, divers12h_prot)
+anova(divers12h_prot, divers12h_BYexptmu_prot)
+
+AIC(divers12h_H0, divers12h_H0_by, divers12h_resist, divers12h_prot, divers12h_BYprot, divers12h_exptmu, divers12h_BYprot_exptmu, divers12h_BYexptmu, divers12h_BYprot_BYexptmu, divers12h_BYexptmu_prot, divers12h_BYprot_protXexptmu) %>% arrange(AIC)
+BIC(divers12h_H0, divers12h_H0_by, divers12h_resist, divers12h_prot, divers12h_BYprot, divers12h_exptmu, divers12h_BYprot_exptmu, divers12h_BYexptmu, divers12h_BYprot_BYexptmu, divers12h_BYexptmu_prot, divers12h_BYprot_protXexptmu) %>% arrange(BIC)
+
+# For the 12h data subset: there is no clear reason to prefer the more complex model over the simpler one
+
+# create data.frame for plotting
+divers_predict <- cbind(divers12h_BYprot$frame,
+                        predict(divers12h_BYprot, type="response"))
+colnames(divers_predict)[c(1,6)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day, y=observed, colour=as.factor(CommRich))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted, group=as.factor(CommRich))) +
+  scale_y_log10() +
+  scale_colour_viridis_d(option = "viridis", begin=0.1, end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="CommRich",
+       title="divers12h_BYprot model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers12h_BYprot_exptmu$frame,
+                        predict(divers12h_BYprot_exptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers12h_BYprot_exptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers12h_BYprot_protXexptmu$frame,
+                        predict(divers12h_BYprot_protXexptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers12h_BYprot_protXexptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers12h_BYexptmu_prot$frame,
+                        predict(divers12h_BYexptmu_prot, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers12h_BYexptmu_prot model predictions")
+# cleanup
+rm(divers_predict)
+
+####################
+# 24h heat duration
+####################
+# grab just the treatment with its associated control data
+diversity_24h <- rbind(diversity_forFit %>% filter(Heat == "24", Day > 1),
+                       diversity_forFit %>% filter(Heat == "control", Day > 1, Day != 5))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+diversity_24h$Trtmt_Day <- "resist"
+diversity_24h$Trtmt_Day[diversity_24h$Day == 3] <- "recov_1"
+diversity_24h$Trtmt_Day[diversity_24h$Day == 4] <- "recov_2"
+
+# fit different models:
+divers24h_H0 <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers24h_H0, plot = TRUE)
+divers24h_H0_by <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich*Heat*Trtmt_Day,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+
+divers24h_resist <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + resistant,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers24h_resist, plot = TRUE)
+
+divers24h_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + protegens,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers24h_prot, plot = TRUE)
+
+divers24h_BYprot <- glmmTMB(Diversity_scalePLUSepsilon ~ Heat*Trtmt_Day*protegens + CommRich,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers24h_BYprot, plot = TRUE)
+
+divers24h_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + community_expected_mu,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers24h_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers24h_BYprot_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers24h_BYprot_exptmu, plot = TRUE)
+
+divers24h_BYprot_protXexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu*protegens,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers24h_BYexptmu_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu + protegens,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers24h_BYprot_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens*community_expected_mu,
+                       data = diversity_24h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+# check preferred models
+#anova(divers24h_H0, divers24h_prot)
+#anova(divers24h_prot, divers24h_BYexptmu_prot)
+
+AIC(divers24h_H0, divers24h_H0_by, divers24h_resist, divers24h_prot, divers24h_BYprot, divers24h_exptmu, divers24h_BYprot_exptmu, divers24h_BYexptmu, divers24h_BYprot_BYexptmu, divers24h_BYexptmu_prot, divers24h_BYprot_protXexptmu) %>% arrange(AIC)
+BIC(divers24h_H0, divers24h_H0_by, divers24h_resist, divers24h_prot, divers24h_BYprot, divers24h_exptmu, divers24h_BYprot_exptmu, divers24h_BYexptmu, divers24h_BYprot_BYexptmu, divers24h_BYexptmu_prot, divers24h_BYprot_protXexptmu) %>% arrange(BIC)
+
+# okay, so model preferences are changing now. BYprot is coming up
+
+# create data.frame for plotting
+divers_predict <- cbind(divers24h_BYprot$frame,
+                        predict(divers24h_BYprot, type="response"))
+colnames(divers_predict)[c(1,6)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day, y=observed, colour=as.factor(CommRich))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted, group=as.factor(CommRich))) +
+  scale_y_log10() +
+  scale_colour_viridis_d(option = "viridis", begin=0.1, end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="CommRich",
+       title="divers24h_BYprot model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers24h_BYprot_exptmu$frame,
+                        predict(divers24h_BYprot_exptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers24h_BYprot_exptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers24h_BYprot_protXexptmu$frame,
+                        predict(divers24h_BYprot_protXexptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers24h_BYprot_protXexptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers24h_BYexptmu_prot$frame,
+                        predict(divers24h_BYexptmu_prot, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers24h_BYexptmu_prot model predictions")
+# cleanup
+rm(divers_predict)
+
+
+####################
+# 48h heat duration
+####################
+# grab just the treatment with its associated control data
+diversity_48h <- rbind(diversity_forFit %>% filter(Heat == "48", Day > 2),
+                       diversity_forFit %>% filter(Heat == "control", Day > 2))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+diversity_48h$Trtmt_Day <- "resist"
+diversity_48h$Trtmt_Day[diversity_48h$Day == 4] <- "recov_1"
+diversity_48h$Trtmt_Day[diversity_48h$Day == 5] <- "recov_2"
+
+# fit different models:
+divers48h_H0 <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers48h_H0, plot = TRUE)
+divers48h_H0_by <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich*Heat*Trtmt_Day,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+
+divers48h_resist <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + resistant,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers48h_resist, plot = TRUE)
+
+divers48h_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + protegens,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers48h_prot, plot = TRUE)
+
+divers48h_BYprot <- glmmTMB(Diversity_scalePLUSepsilon ~ Heat*Trtmt_Day*protegens + CommRich,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers48h_BYprot, plot = TRUE)
+
+divers48h_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day + community_expected_mu,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers48h_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers48h_BYprot_exptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+#simulateResiduals(fittedModel = divers48h_BYprot_exptmu, plot = TRUE)
+
+divers48h_BYprot_protXexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens + community_expected_mu*protegens,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers48h_BYexptmu_prot <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*community_expected_mu + protegens,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+divers48h_BYprot_BYexptmu <- glmmTMB(Diversity_scalePLUSepsilon ~ CommRich + Heat*Trtmt_Day*protegens*community_expected_mu,
+                       data = diversity_48h,
+                       family = lognormal,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+# check preferred models
+anova(divers48h_H0, divers48h_prot)
+anova(divers48h_prot, divers48h_BYexptmu_prot)
+
+AIC(divers48h_H0, divers48h_H0_by, divers48h_resist, divers48h_prot, divers48h_BYprot, divers48h_exptmu, divers48h_BYprot_exptmu, divers48h_BYexptmu, divers48h_BYprot_BYexptmu, divers48h_BYexptmu_prot, divers48h_BYprot_protXexptmu) %>% arrange(AIC)
+BIC(divers48h_H0, divers48h_H0_by, divers48h_resist, divers48h_prot, divers48h_BYprot, divers48h_exptmu, divers48h_BYprot_exptmu, divers48h_BYexptmu, divers48h_BYprot_BYexptmu, divers48h_BYexptmu_prot, divers48h_BYprot_protXexptmu) %>% arrange(BIC)
+
+# For the 48h data subset: there is a clear preference for the BYprot models
+
+# create data.frame for plotting
+divers_predict <- cbind(divers48h_BYprot$frame,
+                        predict(divers48h_BYprot, type="response"))
+colnames(divers_predict)[c(1,6)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day, y=observed, colour=as.factor(CommRich))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted, group=as.factor(CommRich))) +
+  scale_y_log10() +
+  scale_colour_viridis_d(option = "viridis", begin=0.1, end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="CommRich",
+       title="divers48h_BYprot model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers48h_BYprot_exptmu$frame,
+                        predict(divers48h_BYprot_exptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers48h_BYprot_exptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers48h_BYprot_protXexptmu$frame,
+                        predict(divers48h_BYprot_protXexptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers48h_BYprot_protXexptmu model predictions")
+# cleanup
+rm(divers_predict)
+
+# create data.frame for plotting
+divers_predict <- cbind(divers48h_BYprot_BYexptmu$frame,
+                        predict(divers48h_BYprot_BYexptmu, type="response"))
+colnames(divers_predict)[c(1,7)] <- c("observed", "predicted")
+# plot the model predictions against the data
+ggplot(divers_predict, 
+       aes(x=Trtmt_Day,
+           y=observed,
+           colour=community_expected_mu, 
+           group=as.factor(community_expected_mu))) +
+  facet_grid(protegens~Heat) +
+  geom_jitter(alpha=0.4) +
+  geom_line(aes(y=predicted)) +
+  scale_y_log10() +
+  scale_colour_viridis_c(option = "inferno", end=0.85) +
+  labs(y="Shannon diversity (rescaled)",
+       colour="Expected\nCommunity mu",
+       title="divers48h_BYprot_BYexptmu model predictions")
+# cleanup
+rm(divers_predict)
+## okay so from here we see clearly why it doesn't make sense to go for this very complex model
+
+# clean up models that won't be used later
+rm(divers6h_H0, divers6h_H0_by, divers6h_resist, divers6h_prot, divers6h_BYprot, divers6h_exptmu, divers6h_prot_exptmu, divers6h_BYexptmu, divers6h_BYprot_BYexptmu, divers6h_BYexptmu_prot,
+   divers12h_H0, divers12h_H0_by, divers12h_resist, divers12h_prot, divers12h_BYprot, divers12h_exptmu, divers12h_BYexptmu, divers12h_BYprot_BYexptmu, divers12h_BYexptmu_prot,
+   divers24h_H0, divers24h_H0_by, divers24h_resist, divers24h_prot, divers24h_BYprot, divers24h_exptmu, divers24h_BYexptmu, divers24h_BYprot_BYexptmu, divers24h_BYexptmu_prot,
+   divers48h_H0, divers48h_H0_by, divers48h_resist, divers48h_prot, divers48h_BYprot, divers48h_exptmu, divers48h_BYexptmu, divers48h_BYprot_BYexptmu, divers48h_BYexptmu_prot,
+   divers6h_BYprot_exptmu, divers12h_BYprot_exptmu, divers24h_BYprot_exptmu, divers48h_BYprot_exptmu)
+```
+
+As expected, inoculated community richness has a positive effect on diversity, protegens has a negative effect, and community growth rate has a negative effect. There are interactions with presence/absence of heat but the trouble is that we don't want the model to be overly complex (see model predicts just above for the most complex model; the predictions are just rubbish).
+
+The short heat duration data tends to prefer the community growth rate as an interaction effect with heat, especially for 12h where slow communities had much more diversity in the presence of heat for some reason. As the heat duration gets longer, the data tends to prefer protegens as an interaction effect with heat, especially for 48h where protegens *presence* now shows more diversity than absence (i.e., because there are extinction events in the absence of protegens).
+
+I'm going to use the `_BYprot_protXexptmu` model for the analysis below because this model includes all the predictors of interest, is not unnecessarily complex, and it fits pretty okay for all data subsets.
+
+## Calculate effect sizes
+
+```{r, diversityPlus_effect size}
+# use emmeans to get the effect size during heat as compared to control for each of the treatment days AND conditional on protegens
+emm_6h <- emmeans(divers6h_BYprot_protXexptmu, ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens, data = diversity_6h, type = "response")
+effect_6h <- eff_size(emm_6h, sigma(divers6h_BYprot_protXexptmu), edf = df.residual(divers6h_BYprot_protXexptmu))
+
+emm_12h <- emmeans(divers12h_BYprot_protXexptmu, ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens, data = diversity_12h, type = "response")
+effect_12h <- eff_size(emm_12h, sigma(divers12h_BYprot_protXexptmu), edf = df.residual(divers12h_BYprot_protXexptmu))
+
+emm_24h <- emmeans(divers24h_BYprot_protXexptmu, ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens, data = diversity_24h, type = "response")
+effect_24h <- eff_size(emm_24h, sigma(divers24h_BYprot_protXexptmu), edf = df.residual(divers24h_BYprot_protXexptmu))
+
+emm_48h <- emmeans(divers48h_BYprot_protXexptmu, ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens, data = diversity_48h, type = "response")
+effect_48h <- eff_size(emm_48h, sigma(divers48h_BYprot_protXexptmu), edf = df.residual(divers48h_BYprot_protXexptmu))
+
+# a function that extracts the confidence intervals from eff_size *** contingent on protegens ***
+get_effsize_CIs <- function(eff_size_object, heat_trtmt) {
+  data.frame(Heat = heat_trtmt,
+             CommRich = confint(eff_size_object)[[2]],
+             Trtmt_Day = confint(eff_size_object)[[3]],
+             protegens = confint(eff_size_object)[[4]],
+             expected_mu = confint(eff_size_object)[[5]], #
+             est = confint(eff_size_object)[[6]], #[[5]],
+             loCI = confint(eff_size_object)[[9]], #[[8]],
+             hiCI = confint(eff_size_object)[[10]]) #[[9]])
+}
+
+# create a data.frame for plotting marginal effect sizes using a forest plot with the group labels
+div_effects_protegens <- data.frame()
+div_effects_protegens <- rbind(div_effects_protegens,
+                              get_effsize_CIs(effect_6h, heat_trtmt = 6),
+                              get_effsize_CIs(effect_12h, heat_trtmt = 12),
+                              get_effsize_CIs(effect_24h, heat_trtmt = 24),
+                              get_effsize_CIs(effect_48h, heat_trtmt = 48))
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+div_effects_protegens$Trtmt_Day <- factor(div_effects_protegens$Trtmt_Day,
+                                          levels = c("resist", "recov_1", "recov_2"))
+levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Recovery (Day 1)", "Recovery (Day 2)")
+
+# plot conditional part of the model
+ggplot(div_effects_protegens,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day, shape = as.logical(protegens))) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(title = "CommRich + Heat*Trtmt_Day*prot + com_expect_mu*prot",
+       x = "Effect Size on Shannon Diversity",
+       shape = "protegens\npresent?",
+       y="Heat duration")
+
+# we can do a posthoc on this to illustrate statistically significant effects
+posthocPROT_6h <- emmeans(effect_6h, pairwise ~ Trtmt_Day*protegens, data = diversity_6h)
+posthocPROT_12h <- emmeans(effect_12h, pairwise ~ Trtmt_Day*protegens, data = diversity_12h)
+posthocPROT_24h <- emmeans(effect_24h, pairwise ~ Trtmt_Day*protegens, data = diversity_24h)
+posthocPROT_48h <- emmeans(effect_48h, pairwise ~ Trtmt_Day*protegens, data = diversity_48h)
+
+# a function that extracts the confidence intervals from a post-hoc object
+get_posthoc <- function(posthoc_object, heat_trtmt) {
+  output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
+              data.frame() %>%
+                select(-df)
+  colnames(output)[3:7] <- c("est", "SE", "loCI", "hiCI", "groups")
+  output$Heat <- heat_trtmt
+  return(output)
+}
+
+# create a data.frame for plotting
+div_effects_protegens <- data.frame()
+div_effects_protegens <- rbind(div_effects_protegens,
+                               get_posthoc(posthocPROT_6h, heat_trtmt = 6),
+                               get_posthoc(posthocPROT_12h, heat_trtmt = 12),
+                               get_posthoc(posthocPROT_24h, heat_trtmt = 24),
+                               get_posthoc(posthocPROT_48h, heat_trtmt = 48))
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+div_effects_protegens$Trtmt_Day <- factor(div_effects_protegens$Trtmt_Day,
+                                          levels = c("resist", "recov_1", "recov_2"))
+levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Recovery (Day 1)", "Recovery (Day 2)")
+
+# plot with group labels
+ggplot(div_effects_protegens,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day, shape=as.logical(protegens))) +
+  facet_grid(~protegens) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  geom_text(position = position_dodge(width = 0.5),
+            aes(x=-2.5, label=groups)) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Shannon Diversity",
+       y="Heat duration",
+       shape = "protegens\npresent?",
+       title = "CommRich + Heat*Trtmt_Day*prot + com_expect_mu*prot")
+
+# Note that there is a significant interaction between Treatment Day & protegens!
+# I think that it may still be okay to average over the effects of protegens because they are not crossed
+
+# anyway we can still average over the effect of protegens
+# we can do a posthoc on this to illustrate statistically significant effects
+posthoc_6h <- emmeans(effect_6h, pairwise ~ Trtmt_Day, data = diversity_6h)
+posthoc_12h <- emmeans(effect_12h, pairwise ~ Trtmt_Day, data = diversity_12h)
+posthoc_24h <- emmeans(effect_24h, pairwise ~ Trtmt_Day, data = diversity_24h)
+posthoc_48h <- emmeans(effect_48h, pairwise ~ Trtmt_Day, data = diversity_48h)
+
+# a function that extracts the confidence intervals from a post-hoc object
+get_posthoc <- function(posthoc_object, heat_trtmt) {
+  output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
+              data.frame() %>%
+                select(-df)
+  colnames(output)[2:6] <- c("est", "SE", "loCI", "hiCI", "groups")
+  output$Heat <- heat_trtmt
+  return(output)
+}
+# create a data.frame for plotting
+div_effects <- data.frame()
+div_effects <- rbind(div_effects,
+                     get_posthoc(posthoc_6h, heat_trtmt = 6),
+                     get_posthoc(posthoc_12h, heat_trtmt = 12),
+                     get_posthoc(posthoc_24h, heat_trtmt = 24),
+                     get_posthoc(posthoc_48h, heat_trtmt = 48))
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+div_effects$Trtmt_Day <- factor(div_effects$Trtmt_Day,
+                                         levels = c("resist", "recov_1", "recov_2"))
+levels(div_effects$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+# plot with group labels
+ggplot(div_effects,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  geom_text(position = position_dodge(width = 0.5),
+            aes(x=-2.5, label=groups)) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Shannon Diversity",
+       y="Heat duration",
+       title = "protegens as non-focal predictor (i.e., marginalized)")
+
+################################
+# Plot figure for main text: Figure 4a
+################################
+fig4a <- ggplot(div_effects,
+                aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+          geom_vline(xintercept = 0, colour="darkgrey") +
+          geom_point(position = position_dodge(width = 0.5)) +
+          geom_errorbarh(position = position_dodge(width = 0.5),
+                         aes(xmin = loCI, xmax = hiCI), height = 0.15) +
+          scale_x_continuous(limits = c(-4.35, 0.5), expand = c(0,0)) +
+          scale_colour_manual(values=trtmt_pal) +
+          labs(x = "Effect Size on Shannon Diversity",
+               y="Heat Duration (hrs)",
+               colour = "Treatment\nDay")
+
+png(filename="Fig4_legend.png", width = 3.40, height = 2.90, units = "in", res=300)
+print(fig4a)
+dev.off()
+
+png(filename="Fig4A_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
+print(fig4a + theme(legend.position="none"))
+dev.off()
+
+# cleanup
+rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
+   divers6h_BYprot_protXexptmu, divers12h_BYprot_protXexptmu, divers24h_BYprot_protXexptmu, divers48h_BYprot_protXexptmu,
+   emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
+   posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
+   get_effsize_CIs, get_posthoc, 
+   div_effects_protegens, div_effects, fig4a)
+```
 
 # Productivity
+
+How is total community density impacted during and after heat? Let's first plot it directly to get an idea of what we're dealing with:
+
+```{r, shannonD_prelim_plot}
+ggplot(absDen_forFit,
+       aes(y=TotDen_plusEpsilon, x=Day, fill=community_expected_mu)) +
+  facet_grid(protegens~as.factor(Heat)) +
+  geom_quasirandom(alpha=0.7, pch=21) +
+  scale_fill_viridis_c(option = "inferno", end=0.85) +
+  scale_y_log10() +
+  labs(y = "Productivity",
+       fill = "Expected\nCommunity mu")
+```
+
 
 ## Plot
 
