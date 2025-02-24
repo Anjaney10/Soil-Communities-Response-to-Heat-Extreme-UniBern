@@ -2982,6 +2982,10 @@ rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
    div_effects_protegens, div_effects, fig4a)
 ```
 
+## Repeat diversity analysis removing extinct replicates
+
+
+
 # Productivity
 
 How is total community density impacted during and after heat? Let's first plot it directly to get an idea of what we're dealing with:
