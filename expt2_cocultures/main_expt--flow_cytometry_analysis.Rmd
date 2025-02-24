@@ -3017,6 +3017,8 @@ rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
    div_effects_protegens, div_effects)
 ```
 
+The overall results are the same as we found above. This shows that excluding the replicates that went extinct had no impact on the overall results.
+
 # Productivity
 
 How is total community density impacted during and after heat? Let's first plot it directly to get an idea of what we're dealing with:
@@ -3033,9 +3035,15 @@ ggplot(absDen_forFit,
 ```
 
 
-## Plot
+## Choose GLM Family
 
-## Analysis
+## Compare fit of different models to data subsets
+
+## Calculate effect sizes
+
+## Plot decoupling
+
+## Repeat analysis removing extinct replicates
 
 # IGNORE EVERYTHING BELOW
 
