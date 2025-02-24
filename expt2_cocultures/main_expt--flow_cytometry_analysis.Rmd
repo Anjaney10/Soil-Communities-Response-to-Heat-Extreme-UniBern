@@ -1142,9 +1142,6 @@ absDen_forFit <- absDensity %>% filter(Day > 0)
   # but convert NA's into epsilon values (where epsilon is just below the threshold of detection)
 below_threshold_rows <- which(is.na(absDen_forFit$Total_density) & absDen_forFit$Heat>12)
 absDen_forFit$Total_density[below_threshold_rows] <- (0.25*50/146)
-# for the transformed total density data, apply (x + epsilon) transformation to all values EXCEPT those that used to be NA's
-absDen_forFit$TotDen_plusEpsilon <- absDen_forFit$Total_density
-absDen_forFit$TotDen_plusEpsilon[-below_threshold_rows] <- absDen_forFit$TotDen_plusEpsilon[-below_threshold_rows] + (0.25*50/146)
 rm(below_threshold_rows)
 
 # re-arrange the levels of Heat so that emmeans can be run:
@@ -1263,7 +1260,7 @@ values exist for two reasons:
     difficulties/mistakes (only a few of this type). I used interpolation to deal with these: use the median value from other replicates at that same community:day:treatment.
 
 2.  below threshold of detection missing data where the total density was too low to
-    reliably estimate the cell counts. I replace the NA with the limit of detection of the cytometer ("epsilon", as above) and assume equal frequencies of the species that were inoculated in that community.
+    reliably estimate the cell counts. I replace the NA with the limit of detection of the cytometer (epsilon = 0.25*50/146, as above) and assume equal frequencies of the species that were inoculated in that community.
     
 Then, if we just follow the example tutorials directly, with columns = four species and rows =
 different communities on different days for different heat treatments, then the data
@@ -1277,7 +1274,7 @@ Note that I also had to keep just 3 time points from the control treatment. I ch
 
 ```{r, NMDS_create_wide_matrix}
 # go back to the complete data that includes NA values for all 4 species on some days
-absDen_forOrd <- absDen_forFit %>% select(-Total_density, -Diversity, -community_expected_mu, -community_averaged_mu, -resistant)
+absDen_forOrd <- absDen_forFit %>% select(-Diversity, -community_expected_mu, -community_averaged_mu, -resistant)
 # NA values with Total_density == NA are "true" missing data where I failed to record the flow cytometry measurements on that day due to technical difficulties/mistakes. These can be interpolated by using the median values from the remaining community replicates
   ## get the median values for all communities, days, and heat treatments
 median_vals <- absDen_forOrd %>% group_by(Heat, Day, community) %>%
@@ -1286,7 +1283,7 @@ median_vals <- absDen_forOrd %>% group_by(Heat, Day, community) %>%
                             Med_grimontii = median(Conc_grimontii, na.rm=TRUE),
                             Med_veronii = median(Conc_veronii, na.rm=TRUE))
   ## get the index for the rows with "true" missing values
-missing_rows <- which(is.na(absDen_forOrd$TotDen_plusEpsilon))
+missing_rows <- which(is.na(absDen_forOrd$Total_density))
   ## loop through the missing values
 for(i in missing_rows){
   # find the interpolation value in the table of median values
@@ -1305,7 +1302,7 @@ for(i in missing_rows){
 rm(median_vals, missing_rows, i)
 
 # on the other hand, NA values where Total_density is epsilon represent flow cytometry counts that were below the threshold of detection. In this case let's assume 1:1 ratios of inoculated strains at a total density equal to epsilon.
-epsilon <- min(absDen_forOrd$TotDen_plusEpsilon, na.rm=TRUE)
+epsilon <- (0.25*50/146)
   ## get the index for the missing value rows below the threshold of detection
 missing_rows <- which(is.na(absDen_forOrd$Conc_putida))
   ## CommRich NA values were supposed to indicate some differences but that doesn't really matter for us anymore
@@ -1319,8 +1316,8 @@ for(i in missing_rows){
 }
 # re-order the levels of Heat for better plotting
 absDen_forOrd$Heat <- factor(absDen_forOrd$Heat, levels=c("control", "6", "12", "24", "48"))
-# finally we can drop the TotDen_plusEpsilon column
-absDen_forOrd <- absDen_forOrd %>% select(-TotDen_plusEpsilon)
+# finally, we can drop the total density column
+absDen_forOrd <- absDen_forOrd %>% select(-Total_density)
 rm(epsilon, missing_rows, i)
 
 # first we have to widen the data:
@@ -1983,8 +1980,7 @@ The first thing we need to do is to pick which GLM family of distributions looks
 ```{r, diversity_glmFamily}
 # remove the monocultures from the data
 diversity_forFit <- absDen_forFit %>% filter(CommRich > 1) %>% # diversity is nonsense for monocultures
-                        select(-Total_density, -TotDen_plusEpsilon,
-                                      -Conc_putida, -Conc_protegens, -Conc_grimontii, -Conc_veronii)
+                        select(-Total_density, -Conc_putida, -Conc_protegens, -Conc_grimontii, -Conc_veronii)
 
 # scale the data by its standard deviation
 diversity_forFit$Diversity_scale <- scale(diversity_forFit$Diversity,
@@ -3024,12 +3020,14 @@ The overall results are the same as we found above. This shows that excluding th
 How is total community density impacted during and after heat? Let's first plot it directly to get an idea of what we're dealing with:
 
 ```{r, shannonD_prelim_plot}
-ggplot(absDen_forFit,
-       aes(y=TotDen_plusEpsilon, x=Day, fill=community_expected_mu)) +
+ggplot(absDen_forFit %>% filter(!is.na(Total_density)), # remove NA values
+       aes(y=Total_density, x=Day, fill=community_expected_mu)) +
   facet_grid(protegens~as.factor(Heat)) +
   geom_quasirandom(alpha=0.7, pch=21) +
   scale_fill_viridis_c(option = "inferno", end=0.85) +
-  scale_y_log10() +
+  #scale_y_log10(#) +
+  scale_y_continuous(trans=scales::pseudo_log_trans(base = 10), # this prevents 0's from getting lost
+                     breaks = 10^(-1:3)) + 
   labs(y = "Productivity",
        fill = "Expected\nCommunity mu")
 ```
