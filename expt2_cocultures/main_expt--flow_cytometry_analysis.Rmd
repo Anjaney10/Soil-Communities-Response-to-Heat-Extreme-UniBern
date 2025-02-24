@@ -1275,7 +1275,7 @@ Note that I also had to keep just 3 time points from the control treatment. I ch
 
 ```{r, NMDS_create_wide_matrix}
 # go back to the complete data that includes NA values for all 4 species on some days
-absDen_forOrd <- absDen_forFit %>% select(-Total_density, -Diversity, -community_expected_mu, -community_averaged_mu)
+absDen_forOrd <- absDen_forFit %>% select(-Total_density, -Diversity, -community_expected_mu, -community_averaged_mu, -resistant)
 # NA values with Total_density == NA are "true" missing data where I failed to record the flow cytometry measurements on that day due to technical difficulties/mistakes. These can be interpolated by using the median values from the remaining community replicates
   ## get the median values for all communities, days, and heat treatments
 median_vals <- absDen_forOrd %>% group_by(Heat, Day, community) %>%
@@ -1350,7 +1350,14 @@ colnames(absDen_wide_forOrd)[9:20] <- c("Pu_Resist", "Pu_earlyR", "Pu_lateR",
                                         "Vn_Resist", "Vn_earlyR", "Vn_lateR")
 
 ```
+
+Now that we have the wide data, let's calculate the distances and do the ordination with NMDS:
+
 ```{r, NMDS_analysis_plots_signif}
+# The final result depends on the initial random placement of the points 
+# set seed to make the results reproducible
+set.seed(64576)
+
 # keep just the species abundances
 abundance_matrix <- as.matrix(absDen_wide_forOrd[,9:20])
 
