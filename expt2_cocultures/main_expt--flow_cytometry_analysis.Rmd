@@ -1881,6 +1881,12 @@ Ok, so neither the community_expected_mu nor the community_averaged_mu are as go
 
 Although the community_averaged_mu is a better fit, I prefer to use the community_expected_mu because it fits better in the framework of "can we predict microbial community dynamics from the species traits?" Moreover, the fit (at least for the extinction data) is not that much worse for the community_expected_mu as compared to the community_averaged_mu -- and both are insufficient to explain the data without the effect of protegens anyway!
 
+```{r, remove_community_averaged_mu}
+absDensity <- absDensity %>% select(-community_averaged_mu)
+absDen_forFit <- absDen_forFit %>% select(-community_averaged_mu)
+extinct.df <- extinct.df %>% select(-community_averaged_mu)
+```
+
 ## Plot
 
 Plot the preferred model against the data: growth on final day ~ heat duration + protegens present + community_expected_mu
@@ -2740,9 +2746,13 @@ rm(diversity_6h, diversity_12h, diversity_24h, diversity_48h,
    div_effects_protegens, div_effects, fig4a)
 ```
 
+We don't see any significant decoupling here between the effect size during resistance as compared to during recovery.
+
+The main effect that we see is that diversity really drops down a lot for the 48h heat pulse. This is mostly due to loss of the most sensitive species but it can also be driven by extinction of entire replicates. This data includes all replicates, even ones that went extinct altogether. Both monocultures and extinct replicates will have a final Shannon diversity of 0. So let's repeat the analysis to show that it's **not** the extinct wells that are driving the low effect size at 48h duration.
+
 ## Repeat diversity analysis removing extinct replicates
 
-Let's show that this effect is not due entirely to the presence of the extinct reps. I will re-do the entire analysis above but this time using only the data **without** the extinct replicates.
+Let's show that the strong effect at 48h is not due entirely to the presence of the extinct reps. I will re-do the entire analysis above but this time using only the data **without** the extinct replicates.
 
 ```{r, diversityPlus_removeExtinct}
 # add a column indicating whether the replicate survived
@@ -3010,7 +3020,8 @@ rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
    emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
    posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
    get_effsize_CIs, get_posthoc, 
-   div_effects_protegens, div_effects)
+   div_effects_protegens, div_effects,
+   plot_model_pred.CommRich, plot_model_pred.MU)
 ```
 
 The overall results are the same as we found above. This shows that excluding the replicates that went extinct had no impact on the overall results.
@@ -3035,7 +3046,561 @@ ggplot(absDen_forFit %>% filter(!is.na(Total_density)), # remove NA values
 
 ## Choose GLM Family
 
+Now we repeat the same type of emmeans analysis as we did for diversity but using the
+total density (aka a proxy of productivity). In this case I am *a priori* more comfortable
+with using Poisson or negative binomial family because the total density is more like
+counts data.
+
+Remember that total densities below the threshold of detection from wells that *DID*
+recover during the recovery phase (i.e., those that did *not* go extinct) have values of
+epsilon corresponding to the threshold of detection. (Remaining NA values represent
+missing data due to pipetting mistakes or clogs during flow cytometry.) Below threshold of
+detection total density values (i.e., epsilons) make up the majority of observations
+during resistance for the longest heat duration. See a further discussion in the section
+below.
+
+```{r, productivity_glmFamily}
+# scale the data by its standard deviation
+absDen_forFit$TotDensity_scale <- scale(absDen_forFit$Total_density,
+                                        scale = sd(absDen_forFit$Total_density, na.rm = TRUE),
+                                        center = FALSE)
+# the max scaled value is ~7.9 and almost 3% of the data is 0 values
+summary(absDen_forFit$TotDensity_scale)
+sum(absDen_forFit$TotDensity_scale == 0) / length(absDen_forFit$TotDensity_scale)
+# in fact, the total density data is even more long-tailed than the diversity data. I guess that makes sense as there is a max value for the possible diversity with 4 species.
+hist(absDen_forFit$TotDensity_scale)
+
+# re-arrange the levels so that emmeans can be run:
+absDen_forFit$Heat <- as.character(absDen_forFit$Heat)
+absDen_forFit$Heat[which(absDen_forFit$Heat == 0)] <- "control"
+# !!! emmeans expects the control to be the very *last* level !!!
+absDen_forFit$Heat <- factor(absDen_forFit$Heat,
+                             levels = c("6", "12", "24", "48", "control"))
+# let's keep CommRich and Day as numeric for now while we look for the best fitting GLM family
+
+# let's compare different GLM families
+try_gaussian <- glmmTMB(TotDensity_scale ~ CommRich*Heat*Day*protegens,
+                        data = absDen_forFit,
+                        control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_gaussian, plot = TRUE)
+
+try_gamma <- glmmTMB(TotDensity_scale ~ CommRich*Heat*Day*protegens,
+                     data = absDen_forFit,
+                     family = ziGamma,
+                     ziformula = ~1, # this needs to be added because there are 0 values in the data
+                     control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = try_gamma, plot = TRUE)
+
+
+try_lognorm <- glmmTMB(TotDensity_scale ~ CommRich*Heat*Day*protegens,
+                       data = absDen_forFit,
+                       family = lognormal,
+                       ziformula = ~1, # this needs to be added because there are 0 values in the data
+                       control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = try_lognorm, plot = TRUE)
+
+try_LOGlognorm <- glmmTMB(log(TotDensity_scale + 1) ~ CommRich*Heat*Day*protegens,
+                          data = absDen_forFit,
+                          family = lognormal,
+                          ziformula = ~1, # I'm keeping this as 0-inflated lognormal alone was already over-dispersed. So I want to see if the log(x+1) transformation sufficiently brings in the long tail.
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = try_LOGlognorm, plot = TRUE)
+
+try_negbinom <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ CommRich*Heat*Day*protegens,
+                        data = absDen_forFit,
+                        family = nbinom2,
+                        control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_negbinom, plot = TRUE)
+
+try_negbinom0 <- glmmTMB(as.integer(Total_density * 1000) ~ CommRich*Heat*Day*protegens,
+                         data = absDen_forFit,
+                         family = nbinom2,
+                         ziformula = ~1, # try zero inflated distribution
+                         control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_negbinom0, plot = TRUE)
+
+try_poisson <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ CommRich*Heat*Day*protegens,
+                       data = absDen_forFit,
+                       family = genpois,
+                       control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_poisson, plot = TRUE)
+
+try_poisson0 <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ CommRich*Heat*Day*protegens,
+                        data = absDen_forFit,
+                        family = genpois,
+                        ziformula = ~1, # try zero inflated distribution
+                        control = glmmTMBControl(optCtrl = list(iter.max = 10000,eval.max = 10000)))
+simulateResiduals(fittedModel = try_poisson0, plot = TRUE)
+
+# let's check this with AIC and BIC
+AIC(try_gaussian, try_gamma, try_lognorm, try_LOGlognorm,
+    try_negbinom, try_negbinom0, try_poisson, try_poisson0) %>% arrange(AIC)
+BIC(try_gaussian, try_gamma, try_lognorm, try_LOGlognorm,
+    try_negbinom, try_negbinom0, try_poisson, try_poisson0) %>% arrange(BIC)
+
+# clean up
+rm(try_gaussian, try_gamma, try_lognorm, try_LOGlognorm, try_negbinom, try_negbinom0, try_poisson, try_poisson0)
+```
+
+Okay, so let's go for the Poisson family. Its residuals look a little worse than the
+log(x+1) transformed lognormal... But I feel really sketched out by the latter model.
+Whereas the Poisson is the type of family that I might expect to see for count-style data
+like the Total density.
+
 ## Compare fit of different models to data subsets
+
+Now we will do the same thing we did for diversity: split up the data into subsets by heat pulse duration, calculate the best fit information criteria (i.e., AIC and BIC) for each data subset, and get the average across the entire data.
+
+```{r, productivity_subset&modelfit}
+# a function to fit the different models to the subsetted data:
+fit_productivity_models <- function(data_subset) {
+  # create list for output
+  output.ls <- list()
+  
+  # this is the simplest model. I'm fitting it to check for colinearity
+  output.ls[["simple"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ CommRich + Heat + Trtmt_Day + protegens + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  # this is another simple model to check for colinearity
+  output.ls[["simple resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ CommRich + Heat + Trtmt_Day + community_expected_mu + resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+  # this is our null model:
+  output.ls[["H0"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+  # CommRich as an effect:
+  output.ls[["+CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+    output.ls[["*CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+  # Resistance to 40C as an effect:
+  output.ls[["+resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+    output.ls[["*resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+  # protegens presence as an effect:
+  output.ls[["+prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+    output.ls[["*prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+    # expected community growth rate as an effect:
+    output.ls[["+mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+  
+    output.ls[["*mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    # interactions of CommRich with resistance
+    output.ls[["+CommRich +resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + CommRich + resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich +resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich + resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich*resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich*resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+    output.ls[["*CommRich + CommRich*resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich + CommRich*resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*resist +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*resistant + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*resist + resist*CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*resistant + resistant*CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    # interactions of CommRich with protegens
+    output.ls[["+CommRich +prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + CommRich + protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich*prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich*protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich +prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich + protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich + CommRich*prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich + CommRich*protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot + prot*CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + protegens*CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    # interactions of CommRich with expected community growth rate
+    output.ls[["+CommRich +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + CommRich + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich*mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich*community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich + CommRich*mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich + CommRich*community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu + mu*CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + community_expected_mu*CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    # interactions of resistance with expected community growth rate
+    output.ls[["+resist +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + resistant + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*resist*mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*resistant*community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*resist +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*resistant + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*resist + resist*mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*resistant + resistant*community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu +resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu + mu*resist"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + community_expected_mu*resistant,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    # interactions of protegens with expected community growth rate
+    output.ls[["+prot +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day + protegens + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot*mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens*community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot + prot*mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + protegens*community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu +prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu + mu*prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + community_expected_mu*protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    # I need to consider models with even more predictors:
+    # e.g., with CommRich, mu, and resist 
+    #       with CommRich, mu, and prot
+
+  return(output.ls)
+}
+
+# a function to plot model predictions against the data
+  # there's no colours. Just the facets for heat & protegens
+plot_model_pred.nocolours <- function(mod_list, mod_name){
+  # create data.frame for plotting
+  absDen_predict <- cbind(mod_list[[mod_name]]$frame,
+                          predicted=predict(mod_list[[mod_name]], type="response"))
+  # change the first column name for easier plotting
+  colnames(absDen_predict)[1] <- "observed"
+  # create the plot
+  out <- ggplot(absDen_predict, 
+                aes(x=Trtmt_Day, y=observed)) +
+         facet_grid(protegens ~ Heat) +
+         geom_jitter(alpha=0.4) +
+         geom_line(aes(y=predicted, group=paste(Heat, protegens)), colour="red") +
+         scale_y_log10() +
+         scale_colour_viridis_d(option = "viridis", begin=0.1, end=0.85) +
+         labs(y="Absolute Density (rescaled)",
+              title=paste(mod_name, "model predictions"))
+  return(out)
+  rm(absDen_predict)
+}
+
+# a function to plot model predictions against the data
+  # INOCULATED COMMUNITY RICHNESS is plotted as different colours
+plot_model_pred.CommRich <- function(mod_list, mod_name){
+  # create data.frame for plotting
+  absDen_predict <- cbind(mod_list[[mod_name]]$frame,
+                          predicted=predict(mod_list[[mod_name]], type="response"))
+  # change the first column name for easier plotting
+  colnames(absDen_predict)[1] <- "observed"
+  # create the plot
+  out <- ggplot(absDen_predict, 
+                aes(x=Trtmt_Day, y=observed, colour=as.factor(CommRich))) +
+         facet_grid(protegens ~ Heat) +
+         geom_jitter(alpha=0.4) +
+         geom_line(aes(y=predicted, group=as.factor(CommRich))) +
+         scale_y_log10() +
+         scale_colour_viridis_d(option = "viridis", begin=0.1, end=0.85) +
+         labs(y="Absolute Density (rescaled)",
+              colour="CommRich",
+              title=paste(mod_name, "model predictions"))
+  return(out)
+  rm(absDen_predict)
+}
+
+# a function to plot model predictions against the data
+  # EXPECTED COMMUNITY MU is plotted as different colours
+plot_model_pred.MU <- function(mod_list, mod_name){
+  # create data.frame for plotting
+  absDen_predict <- cbind(mod_list[[mod_name]]$frame,
+                          predicted=predict(mod_list[[mod_name]], type="response"))
+  # change the first column name for easier plotting
+  colnames(absDen_predict)[1] <- "observed"
+  # create the plot
+  out <- ggplot(absDen_predict, 
+                aes(x=Trtmt_Day, y=observed,
+                    colour=community_expected_mu, group=as.factor(community_expected_mu))) +
+         facet_grid(protegens ~ Heat) +
+         geom_jitter(alpha=0.4) +
+         geom_line(aes(y=predicted)) +
+         scale_y_log10() +
+         scale_colour_viridis_c(option = "inferno", end=0.85) +
+         labs(y="Absolute Density (rescaled)",
+              colour="Expected\nCommunity mu",
+              title=paste(mod_name, "model predictions"))
+  return(out)
+  rm(absDen_predict)
+}
+
+####################
+# 6h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_6h <- rbind(absDen_forFit %>% filter(Heat == "6"),
+                   absDen_forFit %>% filter(Heat == "control", Day < 4))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_6h$Trtmt_Day <- "resist"
+absDen_6h$Trtmt_Day[absDen_6h$Day == 2] <- "recov_1"
+absDen_6h$Trtmt_Day[absDen_6h$Day == 3] <- "recov_2"
+
+# fit different models:
+absDen_mods6h <- fit_productivity_models(absDen_6h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods6h[["simple"]])
+check_collinearity(absDen_mods6h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods6h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods6h, AIC),
+                           AICc = sapply(absDen_mods6h, AICc),
+                           BIC = sapply(absDen_mods6h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+# plot some of the top model predictions
+print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*mu +prot"))
+print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*mu + mu*prot"))
+print(plot_model_pred.nocolours(mod_list=absDen_mods6h, mod_name="+prot"))
+
+
+# check the fit and estimates for the overall preferred model
+#simulateResiduals(fittedModel = div_mods48h[["*prot + prot*mu"]], plot = TRUE)
+#summary(div_mods48h[["*prot + prot*mu"]])
+
+####################
+# 12h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_12h <- rbind(absDen_forFit %>% filter(Heat == "12", Day > 1),
+                       absDen_forFit %>% filter(Heat == "control", Day > 1, Day != 5))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_12h$Trtmt_Day <- "resist"
+absDen_12h$Trtmt_Day[absDen_12h$Day == 3] <- "recov_1"
+absDen_12h$Trtmt_Day[absDen_12h$Day == 4] <- "recov_2"
+
+# fit different models:
+absDen_mods12h <- fit_productivity_models(absDen_12h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods12h[["simple"]])
+check_collinearity(absDen_mods12h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods12h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods12h, AIC),
+                           AICc = sapply(absDen_mods12h, AICc),
+                           BIC = sapply(absDen_mods12h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+# plot some of the top model predictions
+
+# check the fit and estimates for the overall preferred model
+
+####################
+# 24h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_24h <- rbind(absDen_forFit %>% filter(Heat == "24", Day > 1),
+                       absDen_forFit %>% filter(Heat == "control", Day > 1, Day != 5))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_24h$Trtmt_Day <- "resist"
+absDen_24h$Trtmt_Day[absDen_24h$Day == 3] <- "recov_1"
+absDen_24h$Trtmt_Day[absDen_24h$Day == 4] <- "recov_2"
+
+# fit different models:
+absDen_mods24h <- fit_productivity_models(absDen_24h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods24h[["simple"]])
+check_collinearity(absDen_mods24h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods24h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods24h, AIC),
+                           AICc = sapply(absDen_mods24h, AICc),
+                           BIC = sapply(absDen_mods24h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+# plot some of the top model predictions
+
+# check the fit and estimates for the overall preferred model
+
+
+
+####################
+# 48h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_48h <- rbind(absDen_forFit %>% filter(Heat == "48", Day > 2),
+                       absDen_forFit %>% filter(Heat == "control", Day > 2))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_48h$Trtmt_Day <- "resist"
+absDen_48h$Trtmt_Day[absDen_48h$Day == 4] <- "recov_1"
+absDen_48h$Trtmt_Day[absDen_48h$Day == 5] <- "recov_2"
+
+# fit different models:
+absDen_mods48h <- fit_productivity_models(absDen_48h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods48h[["simple"]])
+check_collinearity(absDen_mods48h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods48h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods48h, AIC),
+                           AICc = sapply(absDen_mods48h, AICc),
+                           BIC = sapply(absDen_mods48h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+# plot some of the top model predictions
+
+# check the fit and estimates for the overall preferred model
+
+
+####################
+# Select the best model across all data subsets
+####################
+# for each information criterion, get the average across all data subsets
+meanIC <- data.frame(pars = sapply(absDen_mods48h, npar_of_glmmTMB_fit),
+                     AIC = sapply(absDen_mods6h, AIC) + sapply(absDen_mods12h, AIC) + sapply(absDen_mods24h, AIC) + sapply(absDen_mods48h, AIC),
+                     AICc = sapply(absDen_mods6h, AICc) + sapply(absDen_mods12h, AICc) + sapply(absDen_mods24h, AICc) + sapply(absDen_mods48h, AICc),
+                     BIC = sapply(absDen_mods6h, BIC) + sapply(absDen_mods12h, BIC) + sapply(absDen_mods24h, BIC) + sapply(absDen_mods48h, BIC)) %>%
+            mutate(AIC = AIC/4,
+                   AICc = AICc/4,
+                   BIC = BIC/4) %>%
+              mutate(dAIC = min(AIC)-AIC,
+                     dAICc = min(AICc)-AICc,
+                     dBIC = min(BIC)-BIC)
+meanIC %>% arrange(BIC)
+
+# clean up
+rm(meanIC)
+```
 
 ## Calculate effect sizes
 
