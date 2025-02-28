@@ -1859,6 +1859,7 @@ summary(ext_mod.avemu_prot)
 # this model does not converge bc of the experimental design (some predictor combinations are unitary)
 summary(ext_mod.exptmu_prot_resist)
 
+## this should go in a single table instead of 3 diferent ones:
 AIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(AIC)
 AICc(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(AICc)
 BIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(BIC)
@@ -2494,27 +2495,40 @@ From the model predictions, we can see why it really doesn't make sense to use t
 
 ## Calculate effect sizes
 
-```{r, diversityPlus_effect size}
+Even if I wanted to calculate effect sizes for the most complex model, I wouldn't be able to do it because there's too many NA values during resistance at 48h heat. This leads to nonest values:
+
+```{r, diversityPlus_try48hcomplexmodel}
+emmeans(div_mods48h[["*prot*mu"]],
+                   ~ Heat | CommRich + Trtmt_Day*protegens*community_expected_mu,
+                   data = diversity_48h, type = "response")
+```
+
+
+```{r, diversityPlus_effectSize}
 # use emmeans to get the effect size during heat as compared to control for each of the treatment days AND conditional on protegens
 emm_6h <- emmeans(div_mods6h[["*prot + prot*mu"]],
                   ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens,
                   data = diversity_6h, type = "response")
-effect_6h <- eff_size(emm_6h, sigma(div_mods6h[["*prot + prot*mu"]]), edf = df.residual(div_mods6h[["*prot + prot*mu"]]))
+effect_6h <- eff_size(emm_6h, sigma(div_mods6h[["*prot + prot*mu"]]),
+                      edf = df.residual(div_mods6h[["*prot + prot*mu"]]))
 
 emm_12h <- emmeans(div_mods12h[["*prot + prot*mu"]],
                    ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens,
                    data = diversity_12h, type = "response")
-effect_12h <- eff_size(emm_12h, sigma(div_mods12h[["*prot + prot*mu"]]), edf = df.residual(div_mods12h[["*prot + prot*mu"]]))
+effect_12h <- eff_size(emm_12h, sigma(div_mods12h[["*prot + prot*mu"]]),
+                       edf = df.residual(div_mods12h[["*prot + prot*mu"]]))
 
 emm_24h <- emmeans(div_mods24h[["*prot + prot*mu"]],
                    ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens,
                    data = diversity_24h, type = "response")
-effect_24h <- eff_size(emm_24h, sigma(div_mods24h[["*prot + prot*mu"]]), edf = df.residual(div_mods24h[["*prot + prot*mu"]]))
+effect_24h <- eff_size(emm_24h, sigma(div_mods24h[["*prot + prot*mu"]]),
+                       edf = df.residual(div_mods24h[["*prot + prot*mu"]]))
 
 emm_48h <- emmeans(div_mods48h[["*prot + prot*mu"]],
                    ~ Heat | CommRich + Trtmt_Day*protegens + community_expected_mu*protegens,
                    data = diversity_48h, type = "response")
-effect_48h <- eff_size(emm_48h, sigma(div_mods48h[["*prot + prot*mu"]]), edf = df.residual(div_mods48h[["*prot + prot*mu"]]))
+effect_48h <- eff_size(emm_48h, sigma(div_mods48h[["*prot + prot*mu"]]),
+                       edf = df.residual(div_mods48h[["*prot + prot*mu"]]))
 
 # a function that extracts the confidence intervals from eff_size *** contingent on protegens ***
 get_effsize_CIs <- function(eff_size_object, heat_trtmt) {
@@ -2608,6 +2622,7 @@ posthoc_24h <- emmeans(effect_24h, pairwise ~ Trtmt_Day, data = diversity_24h)
 posthoc_48h <- emmeans(effect_48h, pairwise ~ Trtmt_Day, data = diversity_48h)
 
 # a function that extracts the confidence intervals from a post-hoc object
+  ## we need to redefine the function because the colnames have changed now
 get_posthoc <- function(posthoc_object, heat_trtmt) {
   output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
               data.frame() %>%
@@ -2738,8 +2753,7 @@ print(fig4a + theme(legend.position="none"))
 dev.off()
 
 # cleanup
-rm(diversity_6h, diversity_12h, diversity_24h, diversity_48h,
-   div_mods6h, div_mods12h, div_mods24h, div_mods48h,
+rm(div_mods6h, div_mods12h, div_mods24h, div_mods48h,
    emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
    posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
    temp, combos, divEffects_ttests,
@@ -3375,7 +3389,60 @@ fit_productivity_models <- function(data_subset) {
     
     # I need to consider models with even more predictors:
     # e.g., with CommRich, mu, and resist 
-    #       with CommRich, mu, and prot
+    output.ls[["*prot +mu +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + community_expected_mu + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot*mu +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens*community_expected_mu + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot + mu*CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + community_expected_mu*CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot + prot*mu +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + protegens*community_expected_mu + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot +mu + prot*CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens + community_expected_mu + protegens*CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*prot*CommRich +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*protegens*CommRich + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu +prot +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + protegens + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu + mu*prot +CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + community_expected_mu*protegens + CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu +prot + mu*CommRich"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu + protegens + community_expected_mu*CommRich,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*mu*CommRich +prot"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*community_expected_mu*CommRich + protegens,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+    
+    output.ls[["*CommRich +prot +mu"]] <- glmmTMB(as.integer(TotDensity_scale * 1000) ~ Heat*Trtmt_Day*CommRich + protegens + community_expected_mu,
+                               data = data_subset,
+                               family = genpois,
+                               control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
 
   return(output.ls)
 }
@@ -3459,6 +3526,11 @@ absDen_6h <- rbind(absDen_forFit %>% filter(Heat == "6"),
 absDen_6h$Trtmt_Day <- "resist"
 absDen_6h$Trtmt_Day[absDen_6h$Day == 2] <- "recov_1"
 absDen_6h$Trtmt_Day[absDen_6h$Day == 3] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_6h$Trtmt_Day <- as.factor(absDen_6h$Trtmt_Day)
+absDen_6h$Heat <- droplevels(absDen_6h$Heat)
+absDen_6h$resistant <- as.factor(absDen_6h$resistant)
+absDen_6h$protegens <- as.factor(absDen_6h$protegens)
 
 # fit different models:
 absDen_mods6h <- fit_productivity_models(absDen_6h)
@@ -3476,15 +3548,22 @@ data.frame(pars = sapply(absDen_mods6h, npar_of_glmmTMB_fit),
                            dAICc = min(AICc)-AICc,
                            dBIC = min(BIC)-BIC) %>% arrange(BIC)
 
-# plot some of the top model predictions
+# plot the best model for 6h:
 print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*mu +prot"))
-print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*mu + mu*prot"))
-print(plot_model_pred.nocolours(mod_list=absDen_mods6h, mod_name="+prot"))
+# plot the best model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*prot +mu + prot*CommRich"))
 
 
-# check the fit and estimates for the overall preferred model
-#simulateResiduals(fittedModel = div_mods48h[["*prot + prot*mu"]], plot = TRUE)
-#summary(div_mods48h[["*prot + prot*mu"]])
+# check the fit and estimates of the best model for the complete data:
+simulateResiduals(fittedModel = absDen_mods6h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods6h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods6h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods6h[["*prot +mu + prot*CommRich"]])
+
+
 
 ####################
 # 12h heat duration
@@ -3496,6 +3575,11 @@ absDen_12h <- rbind(absDen_forFit %>% filter(Heat == "12", Day > 1),
 absDen_12h$Trtmt_Day <- "resist"
 absDen_12h$Trtmt_Day[absDen_12h$Day == 3] <- "recov_1"
 absDen_12h$Trtmt_Day[absDen_12h$Day == 4] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_12h$Trtmt_Day <- as.factor(absDen_12h$Trtmt_Day)
+absDen_12h$Heat <- droplevels(absDen_12h$Heat)
+absDen_12h$resistant <- as.factor(absDen_12h$resistant)
+absDen_12h$protegens <- as.factor(absDen_12h$protegens)
 
 # fit different models:
 absDen_mods12h <- fit_productivity_models(absDen_12h)
@@ -3513,9 +3597,23 @@ data.frame(pars = sapply(absDen_mods12h, npar_of_glmmTMB_fit),
                            dAICc = min(AICc)-AICc,
                            dBIC = min(BIC)-BIC) %>% arrange(BIC)
 
-# plot some of the top model predictions
+# plot the best model for 12h:
+print(plot_model_pred.MU(mod_list=absDen_mods12h, mod_name="*mu +prot"))
+# plot the best model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods12h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods12h, mod_name="*prot +mu + prot*CommRich"))
 
-# check the fit and estimates for the overall preferred model
+
+# check the fit and estimates of the best model for the complete data:
+simulateResiduals(fittedModel = absDen_mods12h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods12h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods12h[["*prot +mu + prot*CommRich"]], plot = TRUE)
+simulateResiduals(fittedModel = absDen_mods12h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods12h[["*prot +mu + prot*CommRich"]])
+
+
 
 ####################
 # 24h heat duration
@@ -3527,6 +3625,11 @@ absDen_24h <- rbind(absDen_forFit %>% filter(Heat == "24", Day > 1),
 absDen_24h$Trtmt_Day <- "resist"
 absDen_24h$Trtmt_Day[absDen_24h$Day == 3] <- "recov_1"
 absDen_24h$Trtmt_Day[absDen_24h$Day == 4] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_24h$Trtmt_Day <- as.factor(absDen_24h$Trtmt_Day)
+absDen_24h$Heat <- droplevels(absDen_24h$Heat)
+absDen_24h$resistant <- as.factor(absDen_24h$resistant)
+absDen_24h$protegens <- as.factor(absDen_24h$protegens)
 
 # fit different models:
 absDen_mods24h <- fit_productivity_models(absDen_24h)
@@ -3544,10 +3647,23 @@ data.frame(pars = sapply(absDen_mods24h, npar_of_glmmTMB_fit),
                            dAICc = min(AICc)-AICc,
                            dBIC = min(BIC)-BIC) %>% arrange(BIC)
 
-# plot some of the top model predictions
+# plot a top model that is unique for 24h:
+  # note that this is the 3rd best model for 24h:
+print(plot_model_pred.CommRich(mod_list=absDen_mods24h, mod_name="*prot*CommRich +mu"))
+# plot the best model for the complete data:
+  # note that this is ALSO the 1st best model for 24h:
+print(plot_model_pred.MU(mod_list=absDen_mods24h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+  # note that this is ALSO the 2nd best model for 24h:
+print(plot_model_pred.MU(mod_list=absDen_mods24h, mod_name="*prot +mu + prot*CommRich"))
 
-# check the fit and estimates for the overall preferred model
 
+# check the fit and estimates of the best model for the complete data:
+simulateResiduals(fittedModel = absDen_mods24h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods24h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods24h[["*prot +mu + prot*CommRich"]], plot = TRUE)
+summary(absDen_mods24h[["*prot +mu + prot*CommRich"]])
 
 
 ####################
@@ -3560,6 +3676,11 @@ absDen_48h <- rbind(absDen_forFit %>% filter(Heat == "48", Day > 2),
 absDen_48h$Trtmt_Day <- "resist"
 absDen_48h$Trtmt_Day[absDen_48h$Day == 4] <- "recov_1"
 absDen_48h$Trtmt_Day[absDen_48h$Day == 5] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_48h$Trtmt_Day <- as.factor(absDen_48h$Trtmt_Day)
+absDen_48h$Heat <- droplevels(absDen_48h$Heat)
+absDen_48h$resistant <- as.factor(absDen_48h$resistant)
+absDen_48h$protegens <- as.factor(absDen_48h$protegens)
 
 # fit different models:
 absDen_mods48h <- fit_productivity_models(absDen_48h)
@@ -3577,9 +3698,20 @@ data.frame(pars = sapply(absDen_mods48h, npar_of_glmmTMB_fit),
                            dAICc = min(AICc)-AICc,
                            dBIC = min(BIC)-BIC) %>% arrange(BIC)
 
-# plot some of the top model predictions
 
-# check the fit and estimates for the overall preferred model
+# plot the best model for 48h:
+print(plot_model_pred.CommRich(mod_list=absDen_mods48h, mod_name="*prot +CommRich"))
+# plot the best model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods48h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+print(plot_model_pred.CommRich(mod_list=absDen_mods48h, mod_name="*prot +mu + prot*CommRich"))
+
+# check the fit and estimates of the best model for the complete data:
+simulateResiduals(fittedModel = absDen_mods48h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods48h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods48h[["*prot +mu + prot*CommRich"]], plot = TRUE)
+summary(absDen_mods48h[["*prot +mu + prot*CommRich"]])
 
 
 ####################
@@ -3598,13 +3730,255 @@ meanIC <- data.frame(pars = sapply(absDen_mods48h, npar_of_glmmTMB_fit),
                      dBIC = min(BIC)-BIC)
 meanIC %>% arrange(BIC)
 
+meanIC %>% arrange(AIC)
+
 # clean up
 rm(meanIC)
 ```
 
+Both AIC and BIC agree that the best model is "\*prot\*mu +CommRich". However, this model is rather complex. I'm less concerned with the danger of over-fitting as each data subset has between 360 - 393 observations (so we are still within the rule-of-thumb of 10 to 15 observations per parameter). But I am very concerned about the number of interaction in this complex model. Recall that its full formula is ~ Heat\*Trtmt_Day\*protegens\*community_expected_mu + CommRich. So it has a 4-way interaction!!! YIKES!
+
+I really don't want to use a model with this many interactions because this usually leads to poor estimates (which cannot be fixed with a posthoc analysis). Or, at the very least it leads to parameter estimates that are very hard to interpret (see above).
+
+I feel confident that the complex model "\*prot\*mu +CommRich" is quite close to the "Truth" because the short heat pulse data prefer the interaction Heat\*Trtmt_Day\*community_expected_mu while the long heat pulse data prefer the interaction Heat\*Trtmt_Day\*protegens. So I think this complex model is the only one that's able to accommodate both of these effects across all heat pulse durations. The problem is that it's too complex to be interpretable.
+
+Therefore, I will use the BIC as the criteria for selecting a model that still captures the main effects but is much simpler. The model "\*prot +mu + prot\*CommRich" has a negligible $\Delta$BIC (recall that [the rule of thumb for BIC model selection criteria ](https://onlinelibrary.wiley.com/doi/pdf/10.1002/9781118856406.app5) is that $\Delta$BIC $<2$ is not worth mentioning). (The $\Delta$AIC is substantially different between this simpler model and the best one but in general AIC is favouring all the most complex models anyway (which is expected as AIC penalizes less for model complexity). Here we really are much more interested in BIC because we need to simplify our model.)
+
+
 ## Calculate effect sizes
 
+Check whether the most complex model is working okay here,
+
+```{r, productivity_try48hcomplexmodel}
+emmeans(absDen_mods48h[["*prot*mu +CommRich"]],
+                   ~ Heat | CommRich + Trtmt_Day*protegens*community_expected_mu,
+                   data = absDen_48h, type = "response")
+```
+
+Let's check whether the effect sizes of the complex model are consistent with those of the simpler model.
+
+```{r, productivity_effectSize}
+# plot the effect size contingent on protegens
+effect_6h_protegens <- eff_size(emmeans(absDen_mods6h[["*prot*mu +CommRich"]], ~ Heat | CommRich + Trtmt_Day*protegens*community_expected_mu, data = absDen_6h),
+                                sigma(absDen_mods6h[["*prot*mu +CommRich"]]),
+                                edf = df.residual(absDen_mods6h[["*prot*mu +CommRich"]]))
+effect_12h_protegens <- eff_size(emmeans(absDen_mods12h[["*prot*mu +CommRich"]], ~ Heat | CommRich + Trtmt_Day*protegens*community_expected_mu, data = absDen_12h),
+                                sigma(absDen_mods12h[["*prot*mu +CommRich"]]),
+                                edf = df.residual(absDen_mods12h[["*prot*mu +CommRich"]]))
+effect_24h_protegens <- eff_size(emmeans(absDen_mods24h[["*prot*mu +CommRich"]], ~ Heat | CommRich + Trtmt_Day*protegens*community_expected_mu, data = absDen_24h),
+                                sigma(absDen_mods24h[["*prot*mu +CommRich"]]),
+                                edf = df.residual(absDen_mods24h[["*prot*mu +CommRich"]]))
+effect_48h_protegens <- eff_size(emmeans(absDen_mods48h[["*prot*mu +CommRich"]], ~ Heat | CommRich + Trtmt_Day*protegens*community_expected_mu, data = absDen_48h),
+                                sigma(absDen_mods48h[["*prot*mu +CommRich"]]),
+                                edf = df.residual(absDen_mods48h[["*prot*mu +CommRich"]]))
+
+
+# a function that extracts the confidence intervals from eff_size contingent on protegens
+get_effsize_CIs <- function(eff_size_object, heat_trtmt) {
+  data.frame(Heat = heat_trtmt,
+             CommRich = confint(eff_size_object)[[2]],
+             Trtmt_Day = confint(eff_size_object)[[3]],
+             protegens = confint(eff_size_object)[[4]],
+             community_expected_mu = confint(eff_size_object)[[5]],
+             effect_est = confint(eff_size_object)[[6]], #[[5]],
+             effect_loCI = confint(eff_size_object)[[9]], #[[8]],
+             effect_hiCI = confint(eff_size_object)[[10]]) #[[9]])
+}
+
+# create a data.frame for plotting marginal effect sizes using a forest plot
+productivity_protegens <- data.frame()
+productivity_protegens <- rbind(productivity_protegens,
+                              get_effsize_CIs(effect_6h_protegens, heat_trtmt = 6),
+                              get_effsize_CIs(effect_12h_protegens, heat_trtmt = 12),
+                              get_effsize_CIs(effect_24h_protegens, heat_trtmt = 24),
+                              get_effsize_CIs(effect_48h_protegens, heat_trtmt = 48))
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+productivity_protegens$Trtmt_Day <- factor(productivity_protegens$Trtmt_Day,
+                                         levels = c("resist", "recov_1", "recov_2"))
+levels(productivity_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+#plot
+ggplot(productivity_protegens,
+       aes(x = effect_est, y = as.factor(Heat), colour = Trtmt_Day, shape = protegens)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = effect_loCI, xmax = effect_hiCI), height = 0.1) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y = "Heat duration (hrs)",
+       shape = "protegens\npresent?",
+       title = "*prot*mu +CommRich")
+
+# But we are not interested in the details of protegens. Let's do the post-hoc again now averaging across the effects of protegens.
+
+posthoc_6h <- emmeans(effect_6h_protegens,
+                      pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                      data = absDen_6h)
+posthoc_12h <- emmeans(effect_12h_protegens,
+                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       data = absDen_12h)
+posthoc_24h <- emmeans(effect_24h_protegens,
+                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       data = absDen_24h)
+posthoc_48h <- emmeans(effect_48h_protegens,
+                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       data = absDen_48h)
+
+# a function that extracts the confidence intervals from a post-hoc object
+get_posthoc <- function(posthoc_object, heat_trtmt) {
+  output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
+              data.frame() %>%
+                select(-df)
+  colnames(output)[4:8] <- c("est", "SE", "loCI", "hiCI", "groups")
+  output$Heat <- heat_trtmt
+  return(output)
+}
+
+# create a data.frame for plotting marginal effect sizes using a forest plot with the group labels
+productivity_effects <- data.frame()
+productivity_effects <- rbind(productivity_effects,
+                              get_posthoc(posthoc_6h, heat_trtmt = 6),
+                              get_posthoc(posthoc_12h, heat_trtmt = 12),
+                              get_posthoc(posthoc_24h, heat_trtmt = 24),
+                              get_posthoc(posthoc_48h, heat_trtmt = 48))
+
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+productivity_effects$Trtmt_Day <- factor(productivity_effects$Trtmt_Day,
+                                         levels = c("resist", "recov_1", "recov_2"))
+levels(productivity_effects$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+# plot
+ggplot(productivity_effects,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  geom_text(position = position_dodge(width = 0.5),
+            aes(x=-0.009, label=groups)) +
+  #scale_x_continuous(breaks=c(-0.006, -0.003, 0), limits=c(-0.01, 0.003)) + 
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y = "Heat duration (hrs)",
+       title = "Averaged across protegens (with extinct reps)")
+```
+
+Okay so it seems that adding the community growth rate as a predictor kinda changes everything. We still see decoupling between resistance and recovery but now the time frame of it varies depending on community composition. For the communities without protegens, decoupling happens sooner (e.g., between resistance and early recovery at 12h), is maximized sooner (at 24h), and then disappears completely by 48h (i.e., because of extinction). On the other hand, we already saw in the extinction analysis above that communities with protegens are protected from extinction for all heat pulse durations investigated here. For these communities, decoupling only begins to happen much later (at 48h). Although these results are more complex than what I had previously reported, they make more sense.
+
+Recall that we are NOT interested in reporting the results from the most complex model. Are the effect sizes of the preferred, less complex model ("\*prot +mu + prot\*CommRich") consistent with those above?
+
+```{r, productivity_effectSize_simplerModel}
+# plot the effect size contingent on protegens
+effect_6h_protegens <- eff_size(emmeans(absDen_mods6h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_6h),
+                                sigma(absDen_mods6h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods6h[["*prot +mu + prot*CommRich"]]))
+effect_12h_protegens <- eff_size(emmeans(absDen_mods12h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_12h),
+                                sigma(absDen_mods12h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods12h[["*prot +mu + prot*CommRich"]]))
+effect_24h_protegens <- eff_size(emmeans(absDen_mods24h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_24h),
+                                sigma(absDen_mods24h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods24h[["*prot +mu + prot*CommRich"]]))
+effect_48h_protegens <- eff_size(emmeans(absDen_mods48h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_48h),
+                                sigma(absDen_mods48h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods48h[["*prot +mu + prot*CommRich"]]))
+
+# a function that extracts the confidence intervals from eff_size contingent on protegens
+get_effsize_CIs <- function(eff_size_object, heat_trtmt) {
+  data.frame(Heat = heat_trtmt,
+             CommRich = confint(eff_size_object)[[5]],
+             Trtmt_Day = confint(eff_size_object)[[2]],
+             protegens = confint(eff_size_object)[[3]],
+             community_expected_mu = confint(eff_size_object)[[4]],
+             effect_est = confint(eff_size_object)[[6]], #[[5]],
+             effect_loCI = confint(eff_size_object)[[9]], #[[8]],
+             effect_hiCI = confint(eff_size_object)[[10]]) #[[9]])
+}
+
+# create a data.frame for plotting marginal effect sizes using a forest plot
+productivity_protegens <- data.frame()
+productivity_protegens <- rbind(productivity_protegens,
+                              get_effsize_CIs(effect_6h_protegens, heat_trtmt = 6),
+                              get_effsize_CIs(effect_12h_protegens, heat_trtmt = 12),
+                              get_effsize_CIs(effect_24h_protegens, heat_trtmt = 24),
+                              get_effsize_CIs(effect_48h_protegens, heat_trtmt = 48))
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+productivity_protegens$Trtmt_Day <- factor(productivity_protegens$Trtmt_Day,
+                                         levels = c("resist", "recov_1", "recov_2"))
+levels(productivity_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+#plot
+ggplot(productivity_protegens,
+       aes(x = effect_est, y = as.factor(Heat), colour = Trtmt_Day, shape = protegens)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = effect_loCI, xmax = effect_hiCI), height = 0.1) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y = "Heat duration (hrs)",
+       shape = "protegens\npresent?",
+       title = "*prot +mu + prot*CommRich")
+
+# But we are not interested in the details of protegens. Let's do the post-hoc again now averaging across the effects of protegens.
+
+posthoc_6h <- emmeans(effect_6h_protegens,
+                      pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                      data = absDen_6h)
+posthoc_12h <- emmeans(effect_12h_protegens,
+                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       data = absDen_12h)
+posthoc_24h <- emmeans(effect_24h_protegens,
+                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       data = absDen_24h)
+posthoc_48h <- emmeans(effect_48h_protegens,
+                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       data = absDen_48h)
+
+# a function that extracts the confidence intervals from a post-hoc object
+get_posthoc <- function(posthoc_object, heat_trtmt) {
+  output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
+              data.frame() %>%
+                select(-df)
+  colnames(output)[4:8] <- c("est", "SE", "loCI", "hiCI", "groups")
+  output$Heat <- heat_trtmt
+  return(output)
+}
+
+# create a data.frame for plotting marginal effect sizes using a forest plot with the group labels
+productivity_effects <- data.frame()
+productivity_effects <- rbind(productivity_effects,
+                              get_posthoc(posthoc_6h, heat_trtmt = 6),
+                              get_posthoc(posthoc_12h, heat_trtmt = 12),
+                              get_posthoc(posthoc_24h, heat_trtmt = 24),
+                              get_posthoc(posthoc_48h, heat_trtmt = 48))
+
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+productivity_effects$Trtmt_Day <- factor(productivity_effects$Trtmt_Day,
+                                         levels = c("resist", "recov_1", "recov_2"))
+levels(productivity_effects$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+# plot
+ggplot(productivity_effects,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  geom_text(position = position_dodge(width = 0.5),
+            aes(x=-0.009, label=groups)) +
+  #scale_x_continuous(breaks=c(-0.006, -0.003, 0), limits=c(-0.01, 0.003)) + 
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y = "Heat duration (hrs)",
+       title = "Averaged across protegens (with extinct reps)")
+```
+
+Awesome! The effect sizes of the simpler model are indeed consistent with those from the complex model. We will only report the parameter estimates and effect sizes from the simpler model.
+
 ## Plot decoupling
+
+
 
 ## Repeat analysis removing extinct replicates
 
