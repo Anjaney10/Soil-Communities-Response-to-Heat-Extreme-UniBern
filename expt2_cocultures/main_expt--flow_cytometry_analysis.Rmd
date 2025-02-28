@@ -2552,7 +2552,7 @@ div_effects_protegens <- rbind(div_effects_protegens,
 # re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
 div_effects_protegens$Trtmt_Day <- factor(div_effects_protegens$Trtmt_Day,
                                           levels = c("resist", "recov_1", "recov_2"))
-levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Recovery (Day 1)", "Recovery (Day 2)")
+levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
 
 # plot conditional part of the model
 ggplot(div_effects_protegens,
@@ -2593,7 +2593,7 @@ div_effects_protegens <- rbind(div_effects_protegens,
 # re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
 div_effects_protegens$Trtmt_Day <- factor(div_effects_protegens$Trtmt_Day,
                                           levels = c("resist", "recov_1", "recov_2"))
-levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Recovery (Day 1)", "Recovery (Day 2)")
+levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
 
 # plot with group labels
 ggplot(div_effects_protegens,
@@ -2983,7 +2983,7 @@ div_effects_protegens <- rbind(div_effects_protegens,
 # re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
 div_effects_protegens$Trtmt_Day <- factor(div_effects_protegens$Trtmt_Day,
                                           levels = c("resist", "recov_1", "recov_2"))
-levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Recovery (Day 1)", "Recovery (Day 2)")
+levels(div_effects_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "LAte Recovery")
 
 # plot conditional part of the model
 ggplot(div_effects_protegens,
@@ -3923,27 +3923,68 @@ ggplot(productivity_protegens,
        shape = "protegens\npresent?",
        title = "*prot +mu + prot*CommRich")
 
-# But we are not interested in the details of protegens. Let's do the post-hoc again now averaging across the effects of protegens.
-
-posthoc_6h <- emmeans(effect_6h_protegens,
-                      pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
-                      data = absDen_6h)
-posthoc_12h <- emmeans(effect_12h_protegens,
-                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
-                       data = absDen_12h)
-posthoc_24h <- emmeans(effect_24h_protegens,
-                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
-                       data = absDen_24h)
-posthoc_48h <- emmeans(effect_48h_protegens,
-                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
-                       data = absDen_48h)
+# we can do a posthoc on this to illustrate statistically significant effects
+posthocPROT_6h <- emmeans(effect_6h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_6h)
+posthocPROT_12h <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_12h)
+posthocPROT_24h <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_24h)
+posthocPROT_48h <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_48h)
 
 # a function that extracts the confidence intervals from a post-hoc object
+  # I'm defining this again because it has to be columns 3 to 7
 get_posthoc <- function(posthoc_object, heat_trtmt) {
   output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
               data.frame() %>%
                 select(-df)
-  colnames(output)[4:8] <- c("est", "SE", "loCI", "hiCI", "groups")
+  colnames(output)[3:7] <- c("est", "SE", "loCI", "hiCI", "groups")
+  output$Heat <- heat_trtmt
+  return(output)
+}
+
+# create a data.frame for plotting
+prod_effects_protegens <- data.frame()
+prod_effects_protegens <- rbind(prod_effects_protegens,
+                               get_posthoc(posthocPROT_6h, heat_trtmt = 6),
+                               get_posthoc(posthocPROT_12h, heat_trtmt = 12),
+                               get_posthoc(posthocPROT_24h, heat_trtmt = 24),
+                               get_posthoc(posthocPROT_48h, heat_trtmt = 48))
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+prod_effects_protegens$Trtmt_Day <- factor(prod_effects_protegens$Trtmt_Day,
+                                          levels = c("resist", "recov_1", "recov_2"))
+levels(prod_effects_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+# plot with group labels
+ggplot(prod_effects_protegens,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day, shape=protegens)) +
+  facet_grid( ~ protegens) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  geom_text(position = position_dodge(width = 0.5),
+            aes(x=-0.0035, label=groups)) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y="Heat duration",
+       shape = "protegens\npresent?",
+       title = "*prot +mu + prot*CommRich")
+
+##############################
+# effect sizes with protegens as non-focal
+##############################
+# But we are not interested in the details of protegens. Let's do the post-hoc again now averaging across the effects of protegens.
+
+posthoc_6h <- emmeans(effect_6h_protegens, pairwise ~ Trtmt_Day, data = absDen_6h)
+posthoc_12h <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day, data = absDen_12h)
+posthoc_24h <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day, data = absDen_24h)
+posthoc_48h <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day, data = absDen_48h)
+
+# a function that extracts the confidence intervals from a post-hoc object
+  # define the function again because I have different columns
+get_posthoc <- function(posthoc_object, heat_trtmt) {
+  output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
+              data.frame() %>%
+                select(-df)
+  colnames(output)[2:6] <- c("est", "SE", "loCI", "hiCI", "groups")
   output$Heat <- heat_trtmt
   return(output)
 }
@@ -3961,7 +4002,7 @@ productivity_effects$Trtmt_Day <- factor(productivity_effects$Trtmt_Day,
                                          levels = c("resist", "recov_1", "recov_2"))
 levels(productivity_effects$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
 
-# plot
+# plot with group labels
 ggplot(productivity_effects,
        aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
   geom_vline(xintercept = 0, colour="darkgrey") +
@@ -3969,15 +4010,70 @@ ggplot(productivity_effects,
   geom_errorbarh(position = position_dodge(width = 0.5),
                  aes(xmin = loCI, xmax = hiCI), height = 0.1) +
   geom_text(position = position_dodge(width = 0.5),
-            aes(x=-0.009, label=groups)) +
-  #scale_x_continuous(breaks=c(-0.006, -0.003, 0), limits=c(-0.01, 0.003)) + 
+            aes(x=-0.008, label=groups)) +
   scale_colour_manual(values=trtmt_pal) +
   labs(x = "Effect Size on Total Density",
        y = "Heat duration (hrs)",
-       title = "Averaged across protegens (with extinct reps)")
+       title = "protegens as non-focal predictor (i.e., marginalized)")
+
+
+#######
+# finally, we will do a series of pairwise two-tailed t-tests to compare between heat durations
+#######
+
+# estimate the sample sizes
+temp <- productivity_effects # copy the effects to temp
+productivity_effects <- rbind(temp %>% filter(Heat == 6) %>% mutate(n = estimate_n(absDen_6h)),
+                     temp %>% filter(Heat == 12) %>% mutate(n = estimate_n(absDen_12h)),
+                     temp %>% filter(Heat == 24) %>% mutate(n = estimate_n(absDen_24h)),
+                     temp %>% filter(Heat == 48) %>% mutate(n = estimate_n(absDen_48h)))
+rm(temp)
+
+# estimate the SD from the SE
+productivity_effects <- productivity_effects %>% mutate(SD = SE * sqrt(n)) %>%
+    # re-order by Heat and Trtmt_Day
+                          arrange(Heat, Trtmt_Day)
+
+# all pairwise combinations of comparisons between the same treatment day for different durations
+temp <- t(combn(c(1,4,7,10), 2))
+combos <- rbind(temp, temp+1, temp+2)
+rm(temp)
+# loop through all the combinations and do the t-tests
+prodEffects_ttests <- data.frame()
+for(i in 1:nrow(combos)){
+  prodEffects_ttests <- rbind(prodEffects_ttests,
+                             run_ttest(row_x = combos[i,1],
+                                       row_y = combos[i,2],
+                                       summary_stats_df = productivity_effects))
+}
+prodEffects_ttests$adjusted_p <- p.adjust(prodEffects_ttests$pvalue, method = "bonferroni")
+prodEffects_ttests$Trtmt_Day <- productivity_effects$Trtmt_Day[combos[,1]]
+prodEffects_ttests$Heat_1 <- productivity_effects$Heat[combos[,1]]
+prodEffects_ttests$Heat_2 <- productivity_effects$Heat[combos[,2]]
+
+print(prodEffects_ttests)
+# these p-values seem overly optimistic. Use alpha = 1*10^-3
+
+
+################################
+# Plot figure for main text: Figure 4b
+################################
+png(filename="Fig4B_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
+ggplot(productivity_effects,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.15) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Productivity",
+       y="Heat Duration (hrs)",
+       colour = "Treatment\nDay") +
+  theme(legend.position="none")
+dev.off()
 ```
 
-Awesome! The effect sizes of the simpler model are indeed consistent with those from the complex model. We will only report the parameter estimates and effect sizes from the simpler model.
+Awesome! The effect sizes of the simpler model are indeed consistent with those from the complex model. We will focus on the parameter estimates and effect sizes from the simpler model.
 
 ## Plot decoupling
 
