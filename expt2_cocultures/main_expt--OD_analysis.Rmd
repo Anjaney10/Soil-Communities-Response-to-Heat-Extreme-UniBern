@@ -57,15 +57,15 @@ calling on a .csv file in the same folder as this script.
 
 ```{r, loadData}
 # import the data
-rawOD.data <- rbind(get_ODdata_serialbatch(folder="./data/serial_transf--2July24/OD growth curves Epoch2", incubator="Epoch", heat=6, Date="24-07-02"),
-                    get_ODdata_serialbatch(folder="./data/serial_transf--8July24/OD growth curves Epoch2", incubator="Epoch", heat=0, Date="24-07-08"),
-                    get_ODdata_serialbatch(folder="./data/serial_transf--8July24/OD growth curves H1", incubator="H1", heat=48, Date="24-07-08"),
-                    get_ODdata_serialbatch(folder="./data/serial_transf--5Aug24/OD growth curves Epoch2", incubator="Epoch", heat=12, Date="24-08-05"),
-                    get_ODdata_serialbatch(folder="./data/serial_transf--19Aug24/OD growth curves Epoch2", incubator="Epoch", heat=24, Date="24-08-19")
+rawOD.data <- rbind(get_ODdata_serialbatch(folder="./raw_data/serial_transf--2July24/OD growth curves Epoch2", incubator="Epoch", heat=6, Date="24-07-02"),
+                    get_ODdata_serialbatch(folder="./raw_data/serial_transf--8July24/OD growth curves Epoch2", incubator="Epoch", heat=0, Date="24-07-08"),
+                    get_ODdata_serialbatch(folder="./raw_data/serial_transf--8July24/OD growth curves H1", incubator="H1", heat=48, Date="24-07-08"),
+                    get_ODdata_serialbatch(folder="./raw_data/serial_transf--5Aug24/OD growth curves Epoch2", incubator="Epoch", heat=12, Date="24-08-05"),
+                    get_ODdata_serialbatch(folder="./raw_data/serial_transf--19Aug24/OD growth curves Epoch2", incubator="Epoch", heat=24, Date="24-08-19")
                     )
 
 # open the annotation file
-annotation <- read.csv("annotation_for_alldata.csv")
+annotation <- read.csv("./intermediate_data/annotation_for_alldata.csv")
 # drop columns that pertain to flow cytometry (and then resultant redundant rows)
 annotation <- annotation %>% select(-FLOWplateWell, -Plate) %>% distinct
 
@@ -263,7 +263,7 @@ latest_time <- latest_time[!duplicated(latest_time$uniqID),] # the first instanc
 
 # print out the extinct wells to file so that they can be used in analyze_temp_serial_transfer_expt--28Oct24.Rmd
 write.csv(latest_time %>% select(uniqID, Day),
-          file="./extinctOD_wells.csv", quote=FALSE, row.names=FALSE)
+          file="./intermediate_data/extinctOD_wells.csv", quote=FALSE, row.names=FALSE)
 
 rm(tmpData, cutoff1, cutoff2, extinct_c1, extinct_c2, latest_time)
 ```
@@ -347,7 +347,7 @@ To do this, we will load in the `absDensity` data file from `main_expt--flow_cyt
 
 ```{r, remove_contaminated}
 # load the absDensity data frame
-load("./absolute_density_data.RData")
+load("./intermediate_data/absolute_density_data.RData")
 
 # keep the OD data only for uniqID's that are found in absDensity
 the.data <- the.data %>% filter(uniqID %in% unique(absDensity$uniqID))

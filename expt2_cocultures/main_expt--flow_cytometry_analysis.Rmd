@@ -140,7 +140,7 @@ import_from_files <- function(dir_vector){
 }
 
 # get all of the raw data:
-list_rawdata <- import_from_files(c("./data/serial_transf--2July24", "./data/serial_transf--8July24", "./data/serial_transf--5Aug24", "./data/serial_transf--19Aug24"))
+list_rawdata <- import_from_files(c("./raw_data/serial_transf--2July24", "./raw_data/serial_transf--8July24", "./raw_data/serial_transf--5Aug24", "./raw_data/serial_transf--19Aug24"))
 ```
 
 Now we can process the data to create unique ID's for each sample. This info needs
@@ -495,7 +495,7 @@ innoc_meta <- suppressWarnings( # we expect left_join to be upset about many-to-
 rm(metadata)
 
 # save the complete metadata to file
-write.csv(rbind(data_meta, innoc_meta), file="./annotation_for_alldata.csv", quote=FALSE, row.names=FALSE)
+write.csv(rbind(data_meta, innoc_meta), file="./intermediate_data/annotation_for_alldata.csv", quote=FALSE, row.names=FALSE)
 
 #####
 # Save the fully annotated raw flow cytometry counts data
@@ -518,7 +518,7 @@ annot.innoc <- left_join(temp_metainnoc,
                   unite("FLOWplateWell", c(FLOW, Well), sep="")
 
 # save this to file as well
-write.csv(rbind(annot.days, annot.innoc), file="./flow_rawdata.csv", quote=FALSE, row.names=FALSE)
+write.csv(rbind(annot.days, annot.innoc), file="./intermediate_data/flow_rawdata.csv", quote=FALSE, row.names=FALSE)
 
 # remove annotated.rawdata as it has been superseded by annot.days and annot.innoc
 rm(annotated.rawdata, temp_metainnoc, innoc_meta)
@@ -1100,7 +1100,7 @@ tmp <- tmp %>% mutate(Conc_putida = putida * Conc_putida,
 # output this data to file
 absDensity <- tmp %>% filter(community != "0_0_0_0") %>%
                 select(uniqID, Heat, Day, Heat_Day, Recov_Day, CommRich:veronii, Total_density:Conc_veronii)
-save(absDensity, file="./absolute_density_data.RData")
+save(absDensity, file="./intermediate_data/absolute_density_data.RData")
 
 rm(tmp, com, contamin.df)
 ```
@@ -1175,7 +1175,7 @@ Another trait that we assayed was whether species are sensitive or resistant to 
 
 ```{r, load_growth_rates30C}
 # load in the stationary phase growth rate estimates from Expt1
-load("expt1--all_growthcurve_data.RData")
+load("./intermediate_data/expt1--all_growthcurve_data.RData")
 rm(ALL_data.df, derivs.df, TTD.df) # keep just the dataframe with the growth rate estimates (mu)
 
 # a look-up table for growth rates at 30C
@@ -1574,18 +1574,18 @@ plot1_2 <- ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
             scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9)
 
 # plot 1 vs 2 with the legend ... I will extract the legend from here
-png(filename="Fig3_A_legend.png", width = 3.48, height = 3.41, units = "in", res=300)
+png(filename="./figures/Fig3_A_legend.png", width = 3.48, height = 3.41, units = "in", res=300)
 print(plot1_2)
 dev.off()
 
 
 # plot 1 vs 2 without the legend
-png(filename="Fig3_A_axis1vs2.png", width = 5.35, height = 3.78, units = "in", res=300)
+png(filename="./figures/Fig3_A_axis1vs2.png", width = 5.35, height = 3.78, units = "in", res=300)
 print(plot1_2 + theme(legend.position="none"))
 dev.off()
 
 # plot 1 vs 3 without the legend
-png(filename="Fig3_A_axis1vs3.png", width = 5.35, height = 3.78, units = "in", res=300)
+png(filename="./figures/Fig3_A_axis1vs3.png", width = 5.35, height = 3.78, units = "in", res=300)
 
 ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
     geom_point(aes(color = Heat, shape = P_protegens), size=2, alpha=0.4) + 
@@ -1679,7 +1679,7 @@ test <- rbind(bckgrd,
                          HillDiv_q1 = c(0, rep(2.4, 4)),
                          Day = c(0, 1.1, 1.5, 1.9, 2.9))) # choose end points that look good even if not perfectly accurate
 
-png(filename = "Fig3_B.png", width = 6.98, height = 4.52, units = "in", res = 300)
+png(filename = "./figures/Fig3_B.png", width = 6.98, height = 4.52, units = "in", res = 300)
 
 ggplot(species_div.df %>% filter(CommRich > 1),
         # exclude monocultures bc richness is not informative for these: their richness will always be equal to 1 even when they go extinct. 
@@ -2747,11 +2747,11 @@ fig4a <- ggplot(div_effects,
                y="Heat Duration (hrs)",
                colour = "Treatment\nDay")
 
-png(filename="Fig4_legend.png", width = 3.40, height = 2.90, units = "in", res=300)
+png(filename="./figures/Fig4_legend.png", width = 3.40, height = 2.90, units = "in", res=300)
 print(fig4a)
 dev.off()
 
-png(filename="Fig4A_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
+png(filename="./figures/Fig4A_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
 print(fig4a + theme(legend.position="none"))
 dev.off()
 
@@ -4058,7 +4058,7 @@ print(prodEffects_ttests)
 ################################
 # Plot figure for main text: Figure 4b
 ################################
-png(filename="Fig4B_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
+png(filename="./figures/Fig4B_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
 ggplot(productivity_effects,
        aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
   geom_vline(xintercept = 0, colour="darkgrey") +
