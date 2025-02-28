@@ -2660,6 +2660,9 @@ ggplot(div_effects,
 #######
 # finally, we will do a series of pairwise two-tailed t-tests to compare between heat durations
 #######
+  # reminder to myself: I tried this as a series of z-tests and that made things more optimistic (aka LESS conservative). The t-test is indeed the more conservative option among the parametric tests.
+  # I also looked into whether it's possible to do a Mann-Whitney test (aka Wilcoxon signed-rank test). But, since that is a *non-parametric test*, by definition you would need raw data to run it (i.e., *not* summary statistics). So I'm a bit confused about whether & how to run a non-parametric test...
+
 # a function that approximates the sample size from each data subset
 estimate_n <- function(data_subset, CommRich = FALSE) {
   if(CommRich == 0) {
