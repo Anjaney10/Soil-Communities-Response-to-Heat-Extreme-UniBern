@@ -937,7 +937,7 @@ This script outputs a csv file indicating the extinct wells, which I will use be
 
 ```{r, extinctWells}
 # import extinct well data from file
-extinct <- read.csv("./extinctOD_wells.csv")
+extinct <- read.csv("./intermediate_data/extinctOD_wells.csv")
 
 # we know that there was no detectable growth on Recovery days. So replace the current values with true 0's here.
 the.data[which(the.data$uniqID %in% extinct$uniqID & the.data$Recov_Day>0),] <- the.data[which(the.data$uniqID %in% extinct$uniqID & the.data$Recov_Day>0),] %>%
@@ -2731,36 +2731,12 @@ divEffects_ttests$Heat_2 <- div_effects$Heat[combos[,2]]
 print(divEffects_ttests)
 # these p-values seem overly optimistic. Use alpha = 1*10^-3
 
-
-################################
-# Plot figure for main text: Figure 4a
-################################
-fig4a <- ggplot(div_effects,
-                aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
-          geom_vline(xintercept = 0, colour="darkgrey") +
-          geom_point(position = position_dodge(width = 0.5)) +
-          geom_errorbarh(position = position_dodge(width = 0.5),
-                         aes(xmin = loCI, xmax = hiCI), height = 0.15) +
-          scale_x_continuous(limits = c(-4.35, 0.5), expand = c(0,0)) +
-          scale_colour_manual(values=trtmt_pal) +
-          labs(x = "Effect Size on Shannon Diversity",
-               y="Heat Duration (hrs)",
-               colour = "Treatment\nDay")
-
-png(filename="./figures/Fig4_legend.png", width = 3.40, height = 2.90, units = "in", res=300)
-print(fig4a)
-dev.off()
-
-png(filename="./figures/Fig4A_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
-print(fig4a + theme(legend.position="none"))
-dev.off()
-
 # cleanup
 rm(div_mods6h, div_mods12h, div_mods24h, div_mods48h,
    emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
    posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
    temp, combos, divEffects_ttests,
-   div_effects_protegens, div_effects, fig4a)
+   div_effects_protegens, div_effects)
 ```
 
 We don't see any significant decoupling here between the effect size during resistance as compared to during recovery.
@@ -3031,14 +3007,39 @@ ggplot(div_effects,
        y="Heat duration",
        title = "protegens as non-focal predictor. Extinct reps removed!")
 
+################################
+# Plot figure for main text: Figure 4a
+################################
+fig4a <- ggplot(div_effects,
+                aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+          geom_vline(xintercept = 0, colour="darkgrey") +
+          geom_point(position = position_dodge(width = 0.5)) +
+          geom_errorbarh(position = position_dodge(width = 0.5),
+                         aes(xmin = loCI, xmax = hiCI), height = 0.15) +
+          scale_x_continuous(limits = c(-4.35, 0.5), expand = c(0,0)) +
+          scale_colour_manual(values=trtmt_pal) +
+          labs(x = "Effect Size on Shannon Diversity",
+               y="Heat Duration (hrs)",
+               colour = "Treatment\nDay")
+
+png(filename="./figures/Fig4_legend.png", width = 3.40, height = 2.90, units = "in", res=300)
+print(fig4a)
+dev.off()
+
+png(filename="./figures/Fig4A_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
+print(fig4a + theme(legend.position="none"))
+dev.off()
+
+print(fig4a)
+
 # cleanup
-rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
-   div_mods6h, div_mods12h, div_mods24h, div_mods48h,
-   emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
-   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
-   get_effsize_CIs, get_posthoc, 
-   div_effects_protegens, div_effects,
-   plot_model_pred.CommRich, plot_model_pred.MU)
+#rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
+#   div_mods6h, div_mods12h, div_mods24h, div_mods48h,
+#   emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
+#   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
+#   get_effsize_CIs, get_posthoc, 
+#   div_effects_protegens, div_effects,
+#   plot_model_pred.CommRich, plot_model_pred.MU, fig4a)
 ```
 
 The overall results are the same as we found above. This shows that excluding the replicates that went extinct had no impact on the overall results.
@@ -3815,27 +3816,27 @@ ggplot(productivity_protegens,
        shape = "protegens\npresent?",
        title = "*prot*mu +CommRich")
 
-# But we are not interested in the details of protegens. Let's do the post-hoc again now averaging across the effects of protegens.
+# But we are not interested in the details of protegens. Let's do the post-hoc by averaging across the effects of protegens.
 
 posthoc_6h <- emmeans(effect_6h_protegens,
-                      pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                      pairwise ~ Trtmt_Day,
                       data = absDen_6h)
 posthoc_12h <- emmeans(effect_12h_protegens,
-                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       pairwise ~ Trtmt_Day,
                        data = absDen_12h)
 posthoc_24h <- emmeans(effect_24h_protegens,
-                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       pairwise ~ Trtmt_Day,
                        data = absDen_24h)
 posthoc_48h <- emmeans(effect_48h_protegens,
-                       pairwise ~ CommRich + Trtmt_Day + community_expected_mu,
+                       pairwise ~ Trtmt_Day,
                        data = absDen_48h)
 
-# a function that extracts the confidence intervals from a post-hoc object
-get_posthoc <- function(posthoc_object, heat_trtmt) {
+# a function that extracts the confidence intervals from a post-hoc object *WITHOUT* protegens
+get_posthoc_NOprot <- function(posthoc_object, heat_trtmt) {
   output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
               data.frame() %>%
                 select(-df)
-  colnames(output)[4:8] <- c("est", "SE", "loCI", "hiCI", "groups")
+  colnames(output)[2:6] <- c("est", "SE", "loCI", "hiCI", "groups")
   output$Heat <- heat_trtmt
   return(output)
 }
@@ -3843,10 +3844,10 @@ get_posthoc <- function(posthoc_object, heat_trtmt) {
 # create a data.frame for plotting marginal effect sizes using a forest plot with the group labels
 productivity_effects <- data.frame()
 productivity_effects <- rbind(productivity_effects,
-                              get_posthoc(posthoc_6h, heat_trtmt = 6),
-                              get_posthoc(posthoc_12h, heat_trtmt = 12),
-                              get_posthoc(posthoc_24h, heat_trtmt = 24),
-                              get_posthoc(posthoc_48h, heat_trtmt = 48))
+                              get_posthoc_NOprot(posthoc_6h, heat_trtmt = 6),
+                              get_posthoc_NOprot(posthoc_12h, heat_trtmt = 12),
+                              get_posthoc_NOprot(posthoc_24h, heat_trtmt = 24),
+                              get_posthoc_NOprot(posthoc_48h, heat_trtmt = 48))
 
 # re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
 productivity_effects$Trtmt_Day <- factor(productivity_effects$Trtmt_Day,
@@ -3933,9 +3934,8 @@ posthocPROT_12h <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day*protegens,
 posthocPROT_24h <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_24h)
 posthocPROT_48h <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_48h)
 
-# a function that extracts the confidence intervals from a post-hoc object
-  # I'm defining this again because it has to be columns 3 to 7
-get_posthoc <- function(posthoc_object, heat_trtmt) {
+# a function that extracts the confidence intervals from a post-hoc object *WITH* protegens
+get_posthoc_YESprot <- function(posthoc_object, heat_trtmt) {
   output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
               data.frame() %>%
                 select(-df)
@@ -3947,10 +3947,10 @@ get_posthoc <- function(posthoc_object, heat_trtmt) {
 # create a data.frame for plotting
 prod_effects_protegens <- data.frame()
 prod_effects_protegens <- rbind(prod_effects_protegens,
-                               get_posthoc(posthocPROT_6h, heat_trtmt = 6),
-                               get_posthoc(posthocPROT_12h, heat_trtmt = 12),
-                               get_posthoc(posthocPROT_24h, heat_trtmt = 24),
-                               get_posthoc(posthocPROT_48h, heat_trtmt = 48))
+                               get_posthoc_YESprot(posthocPROT_6h, heat_trtmt = 6),
+                               get_posthoc_YESprot(posthocPROT_12h, heat_trtmt = 12),
+                               get_posthoc_YESprot(posthocPROT_24h, heat_trtmt = 24),
+                               get_posthoc_YESprot(posthocPROT_48h, heat_trtmt = 48))
 
 ## note that for the decoupling plots I am using a Bonferroni-corrected alpha.
 # let's get those confidence intervals because we will need them to plot decoupling below:
@@ -3961,10 +3961,10 @@ posthocPROT_48h_WIDER <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day*prot
 # put these wider CIs into a table
 widerCIs <- data.frame()
 widerCIs <- rbind(widerCIs,
-                  get_posthoc(posthocPROT_6h_WIDER, heat_trtmt = 6),
-                  get_posthoc(posthocPROT_12h_WIDER, heat_trtmt = 12),
-                  get_posthoc(posthocPROT_24h_WIDER, heat_trtmt = 24),
-                  get_posthoc(posthocPROT_48h_WIDER, heat_trtmt = 48))
+                  get_posthoc_YESprot(posthocPROT_6h_WIDER, heat_trtmt = 6),
+                  get_posthoc_YESprot(posthocPROT_12h_WIDER, heat_trtmt = 12),
+                  get_posthoc_YESprot(posthocPROT_24h_WIDER, heat_trtmt = 24),
+                  get_posthoc_YESprot(posthocPROT_48h_WIDER, heat_trtmt = 48))
 # rename the columns to remind us that this is the Bonferroni corrected alpha
 colnames(widerCIs)[5:6] <- c("loCI_bonAlpha", "hiCI_bonAlpha")
 # combine the wider CIs with the effect sizes
@@ -4230,9 +4230,9 @@ ggplot(late_decoupling,
        x = "Heat Duration (hrs)")
 ```
 
-## Calcualte the effect sizes marginal on protegens
+## Calculate the effect sizes marginal on protegens
 
-```{r, productivity_effectSize_protegens}
+```{r, productivity_effectSize}
 ##############################
 # effect sizes with protegens as non-focal
 ##############################
@@ -4243,24 +4243,13 @@ posthoc_12h <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day, data = absDen
 posthoc_24h <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day, data = absDen_24h)
 posthoc_48h <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day, data = absDen_48h)
 
-# a function that extracts the confidence intervals from a post-hoc object
-  # define the function again because I have different columns
-get_posthoc <- function(posthoc_object, heat_trtmt) {
-  output <- multcomp::cld(posthoc_object, alpha=0.05/4, Letters = letters) %>%
-              data.frame() %>%
-                select(-df)
-  colnames(output)[2:6] <- c("est", "SE", "loCI", "hiCI", "groups")
-  output$Heat <- heat_trtmt
-  return(output)
-}
-
 # create a data.frame for plotting marginal effect sizes using a forest plot with the group labels
 productivity_effects <- data.frame()
 productivity_effects <- rbind(productivity_effects,
-                              get_posthoc(posthoc_6h, heat_trtmt = 6),
-                              get_posthoc(posthoc_12h, heat_trtmt = 12),
-                              get_posthoc(posthoc_24h, heat_trtmt = 24),
-                              get_posthoc(posthoc_48h, heat_trtmt = 48))
+                              get_posthoc_NOprot(posthoc_6h, heat_trtmt = 6),
+                              get_posthoc_NOprot(posthoc_12h, heat_trtmt = 12),
+                              get_posthoc_NOprot(posthoc_24h, heat_trtmt = 24),
+                              get_posthoc_NOprot(posthoc_48h, heat_trtmt = 48))
 
 
 ## note that for the decoupling plots I am using a Bonferroni-corrected alpha.
@@ -4272,10 +4261,10 @@ posthoc_48h_WIDER <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day, data = 
 # put these wider CIs into a table
 widerCIs <- data.frame()
 widerCIs <- rbind(widerCIs,
-                  get_posthoc(posthoc_6h_WIDER, heat_trtmt = 6),
-                  get_posthoc(posthoc_12h_WIDER, heat_trtmt = 12),
-                  get_posthoc(posthoc_24h_WIDER, heat_trtmt = 24),
-                  get_posthoc(posthoc_48h_WIDER, heat_trtmt = 48))
+                  get_posthoc_NOprot(posthoc_6h_WIDER, heat_trtmt = 6),
+                  get_posthoc_NOprot(posthoc_12h_WIDER, heat_trtmt = 12),
+                  get_posthoc_NOprot(posthoc_24h_WIDER, heat_trtmt = 24),
+                  get_posthoc_NOprot(posthoc_48h_WIDER, heat_trtmt = 48))
 # rename the columns to remind us that this is the Bonferroni corrected alpha
 colnames(widerCIs)[4:5] <- c("loCI_bonAlpha", "hiCI_bonAlpha")
 # combine the wider CIs with the effect sizes
@@ -4522,7 +4511,835 @@ ggplot(late_decoupling,
   labs(title = "Late recovery (WITH extinct reps)",
        y = "Decoupling +/- 95% CI",
        x = "Heat Duration (hrs)")
+
+# clean up
+rm(absDen_6h, absDen_12h, absDen_24h, absDen_48h, absDen_mods6h, absDen_mods12h, absDen_mods24h, absDen_mods48h,
+   combos, decoupling_productivity, early_decoupling, late_decoupling,
+   effect_6h, effect_12h, effect_24h, effect_48h, effect_6h_protegens, effect_12h_protegens, effect_24h_protegens, effect_48h_protegens,
+   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h, posthoc_6h_WIDER, posthoc_12h_WIDER, posthoc_24h_WIDER, posthoc_48h_WIDER, posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthocPROT_6h_WIDER, posthocPROT_12h_WIDER, posthocPROT_24h_WIDER, posthocPROT_48h_WIDER,
+   prod_effects_protegens, prodEffects_ttests, productivity_effects, productivity_protegens)
 ```
 
 ## Repeat analysis removing extinct replicates
+
+Let's remove the extinct replicates to focus just on the data where the communities survived.
+
+```{r, prod_NOextinct_subset&modelfit}
+# add a column indicating whether the replicate survived
+  # but first we need to remove $Heat because it's a factor for diversity but numeric for extinctions and cannot be *_joined
+tmp_div <- absDen_forFit %>% select(-Heat)
+tmp_div <- inner_join(tmp_div,
+                      extinct.df %>% select(uniqID, survived),
+                      by = c("uniqID"))
+absDen_forFit$survived <- tmp_div$survived
+rm(tmp_div)
+
+# keep just the diversity values that did not go extinct
+absDen_forFit <- absDen_forFit %>% filter(survived == 1)
+
+####################
+# 6h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_6h <- rbind(absDen_forFit %>% filter(Heat == "6"),
+                   absDen_forFit %>% filter(Heat == "control", Day < 4))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_6h$Trtmt_Day <- "resist"
+absDen_6h$Trtmt_Day[absDen_6h$Day == 2] <- "recov_1"
+absDen_6h$Trtmt_Day[absDen_6h$Day == 3] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_6h$Trtmt_Day <- as.factor(absDen_6h$Trtmt_Day)
+absDen_6h$Heat <- droplevels(absDen_6h$Heat)
+absDen_6h$resistant <- as.factor(absDen_6h$resistant)
+absDen_6h$protegens <- as.factor(absDen_6h$protegens)
+
+# fit different models:
+absDen_mods6h <- fit_productivity_models(absDen_6h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods6h[["simple"]])
+check_collinearity(absDen_mods6h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods6h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods6h, AIC),
+                           AICc = sapply(absDen_mods6h, AICc),
+                           BIC = sapply(absDen_mods6h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+# plot the best model for 6h:
+print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*mu +prot"))
+# plot the best model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods6h, mod_name="*prot +mu + prot*CommRich"))
+
+
+# check the fit and estimates of the best model for the complete data:
+#simulateResiduals(fittedModel = absDen_mods6h[["*prot*mu +CommRich"]], plot = TRUE)
+#summary(absDen_mods6h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods6h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods6h[["*prot +mu + prot*CommRich"]])
+
+
+
+####################
+# 12h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_12h <- rbind(absDen_forFit %>% filter(Heat == "12", Day > 1),
+                       absDen_forFit %>% filter(Heat == "control", Day > 1, Day != 5))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_12h$Trtmt_Day <- "resist"
+absDen_12h$Trtmt_Day[absDen_12h$Day == 3] <- "recov_1"
+absDen_12h$Trtmt_Day[absDen_12h$Day == 4] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_12h$Trtmt_Day <- as.factor(absDen_12h$Trtmt_Day)
+absDen_12h$Heat <- droplevels(absDen_12h$Heat)
+absDen_12h$resistant <- as.factor(absDen_12h$resistant)
+absDen_12h$protegens <- as.factor(absDen_12h$protegens)
+
+# fit different models:
+absDen_mods12h <- fit_productivity_models(absDen_12h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods12h[["simple"]])
+check_collinearity(absDen_mods12h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods12h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods12h, AIC),
+                           AICc = sapply(absDen_mods12h, AICc),
+                           BIC = sapply(absDen_mods12h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+# plot the best model for 12h:
+print(plot_model_pred.MU(mod_list=absDen_mods12h, mod_name="*mu +prot"))
+# plot the best model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods12h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods12h, mod_name="*prot +mu + prot*CommRich"))
+
+
+# check the fit and estimates of the best model for the complete data:
+#simulateResiduals(fittedModel = absDen_mods12h[["*prot*mu +CommRich"]], plot = TRUE)
+#summary(absDen_mods12h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods12h[["*prot*mu +CommRich"]], plot = TRUE)
+summary(absDen_mods12h[["*prot +mu + prot*CommRich"]])
+
+
+
+####################
+# 24h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_24h <- rbind(absDen_forFit %>% filter(Heat == "24", Day > 1),
+                       absDen_forFit %>% filter(Heat == "control", Day > 1, Day != 5))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_24h$Trtmt_Day <- "resist"
+absDen_24h$Trtmt_Day[absDen_24h$Day == 3] <- "recov_1"
+absDen_24h$Trtmt_Day[absDen_24h$Day == 4] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_24h$Trtmt_Day <- as.factor(absDen_24h$Trtmt_Day)
+absDen_24h$Heat <- droplevels(absDen_24h$Heat)
+absDen_24h$resistant <- as.factor(absDen_24h$resistant)
+absDen_24h$protegens <- as.factor(absDen_24h$protegens)
+
+# fit different models:
+absDen_mods24h <- fit_productivity_models(absDen_24h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods24h[["simple"]])
+check_collinearity(absDen_mods24h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods24h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods24h, AIC),
+                           AICc = sapply(absDen_mods24h, AICc),
+                           BIC = sapply(absDen_mods24h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+# plot the best model for the 24h data without extinctions:
+print(plot_model_pred.CommRich(mod_list=absDen_mods24h, mod_name="*prot*mu +CommRich"))
+# plot the best model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods24h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods24h, mod_name="*prot +mu + prot*CommRich"))
+
+
+# check the fit and estimates of the best model for the complete data:
+#simulateResiduals(fittedModel = absDen_mods24h[["*prot*mu +CommRich"]], plot = TRUE)
+#summary(absDen_mods24h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods24h[["*prot +mu + prot*CommRich"]], plot = TRUE)
+summary(absDen_mods24h[["*prot +mu + prot*CommRich"]])
+
+
+####################
+# 48h heat duration
+####################
+# grab just the treatment with its associated control data
+absDen_48h <- rbind(absDen_forFit %>% filter(Heat == "48", Day > 2),
+                       absDen_forFit %>% filter(Heat == "control", Day > 2))
+# create a column for last day of heat, first day of recovery, and last day of recovery
+absDen_48h$Trtmt_Day <- "resist"
+absDen_48h$Trtmt_Day[absDen_48h$Day == 4] <- "recov_1"
+absDen_48h$Trtmt_Day[absDen_48h$Day == 5] <- "recov_2"
+# appropriately distinguish between numbers and factors
+absDen_48h$Trtmt_Day <- as.factor(absDen_48h$Trtmt_Day)
+absDen_48h$Heat <- droplevels(absDen_48h$Heat)
+absDen_48h$resistant <- as.factor(absDen_48h$resistant)
+absDen_48h$protegens <- as.factor(absDen_48h$protegens)
+
+# fit different models:
+absDen_mods48h <- fit_productivity_models(absDen_48h)
+
+# check the simplest possible models for multicolinearity
+check_collinearity(absDen_mods48h[["simple"]])
+check_collinearity(absDen_mods48h[["simple resist"]])
+
+# print a summary table of the model fits
+data.frame(pars = sapply(absDen_mods48h, npar_of_glmmTMB_fit),
+                           AIC = sapply(absDen_mods48h, AIC),
+                           AICc = sapply(absDen_mods48h, AICc),
+                           BIC = sapply(absDen_mods48h, BIC)) %>%
+                    mutate(dAIC = min(AIC)-AIC,
+                           dAICc = min(AICc)-AICc,
+                           dBIC = min(BIC)-BIC) %>% arrange(BIC)
+
+
+# plot the best model for 48h:
+print(plot_model_pred.CommRich(mod_list=absDen_mods48h, mod_name="+CommRich +prot"))
+# plot the best model for the complete data:
+print(plot_model_pred.MU(mod_list=absDen_mods48h, mod_name="*prot*mu +CommRich"))
+# plot the preferred model for the complete data:
+print(plot_model_pred.CommRich(mod_list=absDen_mods48h, mod_name="*prot +mu + prot*CommRich"))
+
+# check the fit and estimates of the best model for the complete data:
+#simulateResiduals(fittedModel = absDen_mods48h[["*prot*mu +CommRich"]], plot = TRUE)
+#summary(absDen_mods48h[["*prot*mu +CommRich"]])
+# check the fit and estimates of the preferred model for the complete data:
+simulateResiduals(fittedModel = absDen_mods48h[["*prot +mu + prot*CommRich"]], plot = TRUE)
+summary(absDen_mods48h[["*prot +mu + prot*CommRich"]])
+
+
+####################
+# Select the best model across all data subsets
+####################
+# for each information criterion, get the average across all data subsets
+meanIC <- data.frame(pars = sapply(absDen_mods48h, npar_of_glmmTMB_fit),
+                     AIC = sapply(absDen_mods6h, AIC) + sapply(absDen_mods12h, AIC) + sapply(absDen_mods24h, AIC) + sapply(absDen_mods48h, AIC),
+                     AICc = sapply(absDen_mods6h, AICc) + sapply(absDen_mods12h, AICc) + sapply(absDen_mods24h, AICc) + sapply(absDen_mods48h, AICc),
+                     BIC = sapply(absDen_mods6h, BIC) + sapply(absDen_mods12h, BIC) + sapply(absDen_mods24h, BIC) + sapply(absDen_mods48h, BIC)) %>%
+            mutate(AIC = AIC/4,
+                   AICc = AICc/4,
+                   BIC = BIC/4) %>%
+              mutate(dAIC = min(AIC)-AIC,
+                     dAICc = min(AICc)-AICc,
+                     dBIC = min(BIC)-BIC)
+meanIC %>% arrange(BIC)
+
+meanIC %>% arrange(AIC)
+
+# clean up
+rm(meanIC)
+```
+
+Annoyingly enough, the best model *as well as* the preferred model are changed now that we consider the data without any extinctions...
+
+Welp, I'm going to still use the "\*prot +mu + prot\*CommRich" model. There's a different result now for late recovery at 48h: a positive effect of heat duration. When I tried to do the downstream analysis with the model preferred for the extinction data, "", the results were the same. So this seems to be describing a trend that's present in the data and not an issue with the model selection itself.
+
+### Calculate effect sizes conditional on protegens
+
+```{r, prod_NOextinct_effectSize_protegens}
+# plot the effect size contingent on protegens
+  # use the same model as above, "*prot +mu + prot*CommRich"
+effect_6h_protegens <- eff_size(emmeans(absDen_mods6h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_6h),
+                                sigma(absDen_mods6h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods6h[["*prot +mu + prot*CommRich"]]))
+effect_12h_protegens <- eff_size(emmeans(absDen_mods12h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_12h),
+                                sigma(absDen_mods12h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods12h[["*prot +mu + prot*CommRich"]]))
+effect_24h_protegens <- eff_size(emmeans(absDen_mods24h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_24h),
+                                sigma(absDen_mods24h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods24h[["*prot +mu + prot*CommRich"]]))
+effect_48h_protegens <- eff_size(emmeans(absDen_mods48h[["*prot +mu + prot*CommRich"]], ~ Heat | Trtmt_Day*protegens + community_expected_mu + protegens*CommRich, data = absDen_48h),
+                                sigma(absDen_mods48h[["*prot +mu + prot*CommRich"]]),
+                                edf = df.residual(absDen_mods48h[["*prot +mu + prot*CommRich"]]))
+
+
+# use the overall preferred model for the data excluding extinctions:
+#effect_6h_protegens <- eff_size(emmeans(absDen_mods6h[["*prot +CommRich"]], ~ Heat | Trtmt_Day*protegens + CommRich, data = absDen_6h),
+#                                sigma(absDen_mods6h[["*prot +CommRich"]]),
+#                                edf = df.residual(absDen_mods6h[["*prot +CommRich"]]))
+#effect_12h_protegens <- eff_size(emmeans(absDen_mods12h[["*prot +CommRich"]], ~ Heat | #Trtmt_Day*protegens + CommRich, data = absDen_12h),
+#                                sigma(absDen_mods12h[["*prot +CommRich"]]),
+#                                edf = df.residual(absDen_mods12h[["*prot +CommRich"]]))
+#effect_24h_protegens <- eff_size(emmeans(absDen_mods24h[["*prot +CommRich"]], ~ Heat | #Trtmt_Day*protegens + CommRich, data = absDen_24h),
+#                                sigma(absDen_mods24h[["*prot +CommRich"]]),
+#                                edf = df.residual(absDen_mods24h[["*prot +CommRich"]]))
+#effect_48h_protegens <- eff_size(emmeans(absDen_mods48h[["*prot +CommRich"]], ~ Heat | Trtmt_Day*protegens + CommRich, data = absDen_48h),
+#                                sigma(absDen_mods48h[["*prot +CommRich"]]),
+#                                edf = df.residual(absDen_mods48h[["*prot +CommRich"]]))
+
+# a function that extracts the confidence intervals from eff_size contingent on protegens
+get_effsize_CIs <- function(eff_size_object, heat_trtmt) {
+  data.frame(Heat = heat_trtmt,
+             # this function will fail with "*prot +CommRich"
+             # so you need to modify the code as indicated in the commented out bits:
+             CommRich = confint(eff_size_object)[[5]], #[[4]],
+             Trtmt_Day = confint(eff_size_object)[[2]], #[[2]],
+             protegens = confint(eff_size_object)[[3]],
+             community_expected_mu = confint(eff_size_object)[[4]], # this whole line needs to be removed
+             effect_est = confint(eff_size_object)[[5]],
+             effect_loCI = confint(eff_size_object)[[8]],
+             effect_hiCI = confint(eff_size_object)[[9]])
+}
+
+# create a data.frame for plotting marginal effect sizes using a forest plot
+productivity_protegens <- data.frame()
+productivity_protegens <- rbind(productivity_protegens,
+                              get_effsize_CIs(effect_6h_protegens, heat_trtmt = 6),
+                              get_effsize_CIs(effect_12h_protegens, heat_trtmt = 12),
+                              get_effsize_CIs(effect_24h_protegens, heat_trtmt = 24),
+                              get_effsize_CIs(effect_48h_protegens, heat_trtmt = 48))
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+productivity_protegens$Trtmt_Day <- factor(productivity_protegens$Trtmt_Day,
+                                         levels = c("resist", "recov_1", "recov_2"))
+levels(productivity_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+#plot
+ggplot(productivity_protegens,
+       aes(x = effect_est, y = as.factor(Heat), colour = Trtmt_Day, shape = protegens)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = effect_loCI, xmax = effect_hiCI), height = 0.1) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y = "Heat duration (hrs)",
+       shape = "protegens\npresent?",
+       title = "*prot +mu + prot*CommRich")
+
+# we can do a posthoc on this to illustrate statistically significant effects
+posthocPROT_6h <- emmeans(effect_6h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_6h)
+posthocPROT_12h <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_12h)
+posthocPROT_24h <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_24h)
+posthocPROT_48h <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_48h)
+
+# create a data.frame for plotting
+prod_effects_protegens <- data.frame()
+prod_effects_protegens <- rbind(prod_effects_protegens,
+                               get_posthoc_YESprot(posthocPROT_6h, heat_trtmt = 6),
+                               get_posthoc_YESprot(posthocPROT_12h, heat_trtmt = 12),
+                               get_posthoc_YESprot(posthocPROT_24h, heat_trtmt = 24),
+                               get_posthoc_YESprot(posthocPROT_48h, heat_trtmt = 48))
+
+## note that for the decoupling plots I am using a Bonferroni-corrected alpha.
+# let's get those confidence intervals because we will need them to plot decoupling below:
+posthocPROT_6h_WIDER <- emmeans(effect_6h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_6h, level=0.9875)
+posthocPROT_12h_WIDER <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day*protegens, data = posthocPROT_12h, level=0.9875)
+posthocPROT_24h_WIDER <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_24h, level=0.9875)
+posthocPROT_48h_WIDER <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day*protegens, data = absDen_48h, level=0.9875)
+# put these wider CIs into a table
+widerCIs <- data.frame()
+widerCIs <- rbind(widerCIs,
+                  get_posthoc_YESprot(posthocPROT_6h_WIDER, heat_trtmt = 6),
+                  get_posthoc_YESprot(posthocPROT_12h_WIDER, heat_trtmt = 12),
+                  get_posthoc_YESprot(posthocPROT_24h_WIDER, heat_trtmt = 24),
+                  get_posthoc_YESprot(posthocPROT_48h_WIDER, heat_trtmt = 48))
+# rename the columns to remind us that this is the Bonferroni corrected alpha
+colnames(widerCIs)[5:6] <- c("loCI_bonAlpha", "hiCI_bonAlpha")
+# combine the wider CIs with the effect sizes
+prod_effects_protegens <- inner_join(prod_effects_protegens,
+                                     widerCIs %>% select(-SE))
+rm(widerCIs)
+
+
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+prod_effects_protegens$Trtmt_Day <- factor(prod_effects_protegens$Trtmt_Day,
+                                          levels = c("resist", "recov_1", "recov_2"))
+levels(prod_effects_protegens$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+# plot with group labels
+ggplot(prod_effects_protegens,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day, shape=protegens)) +
+  facet_grid( ~ protegens) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  geom_text(position = position_dodge(width = 0.5),
+            aes(x=-0.0035, label=groups)) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y="Heat duration",
+       shape = "protegens\npresent?",
+       title = "*prot +mu + prot*CommRich")
+```
+
+
+#### Decoupling
+
+```{r, decoupling_NOextinct_protegens}
+decoupling_productivity <- prod_effects_protegens %>% select(-loCI, -hiCI)
+# keep just the Bonferroni-corrected (wider) confidence intervals
+decoupling_productivity <- decoupling_productivity %>%
+                              rename(loCI = loCI_bonAlpha,
+                                     hiCI = hiCI_bonAlpha)
+# for easier coding, rename the levels of Trtmt_Day
+levels(decoupling_productivity$Trtmt_Day) <- c("resist", "early_recov", "late_recov")
+
+# create data.frame for plotting
+decoupling_productivity <- decoupling_productivity %>%
+                              pivot_wider(names_from = Trtmt_Day,
+                                          values_from = c(est, loCI, hiCI, SE, groups))
+
+# columns that indicate if resistance is significantly different from recovery
+decoupling_productivity$early_recov_VS_resist <- mapply(are_groups_different,
+                                                        decoupling_productivity$groups_early_recov,
+                                                        decoupling_productivity$groups_resist)
+decoupling_productivity$late_recov_VS_resist <- mapply(are_groups_different,
+                                                       decoupling_productivity$groups_late_recov,
+                                                       decoupling_productivity$groups_resist)
+# clean up extra columns
+decoupling_productivity <- decoupling_productivity %>% select(-groups_resist, -groups_early_recov, -groups_late_recov)
+
+
+# first plot the decoupling on early recovery
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_early_recov, colour = as.factor(Heat))) +
+  facet_grid(~protegens) +
+  geom_hline(yintercept = 0, colour="grey") +
+  geom_vline(xintercept = 0, colour="grey") +
+  geom_abline(slope = 1) +
+  geom_point(shape=21, size=3, aes(fill=as.factor(early_recov_VS_resist))) +
+  geom_errorbarh(aes(xmin = loCI_resist, xmax = hiCI_resist), height=0) +
+  geom_errorbar(aes(ymin = loCI_early_recov, ymax = hiCI_early_recov), width=0) +
+  # center the plot on 0,0:
+  scale_x_continuous(limits = c(-0.025, 0.025), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-0.0025, 0.0025), expand = c(0, 0)) +
+  scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+  scale_fill_manual(values=c("white", "black")) +
+  labs(title = "Decoupling of productivity (NO extinct reps)",
+       x = "Resistance +/- 95% CI",
+       y = "Early Recovery +/- 95% CI",
+       colour = "Heat\nDuration",
+       fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+# here's another way to plot it where the confidence intervals are shown as ellipses:
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_early_recov, colour = as.factor(Heat))) +
+    facet_grid(~protegens) +
+    geom_hline(yintercept = 0, colour="grey") +
+    geom_vline(xintercept = 0, colour="grey") +
+    geom_abline(slope = 1) +
+    geom_point(shape=21, size=3, aes(fill=as.factor(early_recov_VS_resist))) +
+    scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+    scale_fill_manual(values=c("white", "black")) +
+    geom_ellipse(aes(x0 = est_resist,
+                     y0 = est_early_recov,
+                     # radius on x direction:
+                     a = hiCI_resist - est_resist,
+                     # radius on y direction:
+                     b = hiCI_early_recov - est_early_recov,
+                     angle = 0)) +
+    labs(title = "Decoupling of productivity (NO extinct reps)",
+         x = "Resistance +/- 95% CI",
+         y = "Early Recovery +/- 95% CI",
+         colour = "Heat\nDuration",
+         fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+
+# next plot the decoupling on later recovery
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_late_recov, colour = as.factor(Heat))) +
+  facet_grid(~protegens) +
+  geom_hline(yintercept = 0, colour="grey") +
+  geom_vline(xintercept = 0, colour="grey") +
+  geom_abline(slope = 1) +
+  geom_point(shape=21, size=3, aes(fill=as.factor(late_recov_VS_resist))) +
+  geom_errorbarh(aes(xmin = loCI_resist, xmax = hiCI_resist), height=0) +
+  geom_errorbar(aes(ymin = loCI_late_recov, ymax = hiCI_late_recov), width=0) +
+  # center the plot on 0,0:
+  scale_x_continuous(limits = c(-0.025, 0.025), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-0.005, 0.005), expand = c(0, 0)) +
+  scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+  scale_fill_manual(values=c("white", "black")) +
+  labs(title = "Decoupling of productivity (NO extinct reps)",
+       x = "Resistance +/- 95% CI",
+       y = "Late Recovery +/- 95% CI",
+       colour = "Heat\nDuration",
+       fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+# late recovery with CI plotted as ellipses:
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_late_recov, colour = as.factor(Heat))) +
+    facet_grid(~protegens) +
+    geom_hline(yintercept = 0, colour="grey") +
+    geom_vline(xintercept = 0, colour="grey") +
+    geom_abline(slope = 1) +
+    geom_point(shape=21, size=3, aes(fill=as.factor(late_recov_VS_resist))) +
+    scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+    scale_fill_manual(values=c("white", "black")) +
+    geom_ellipse(aes(x0 = est_resist,
+                     y0 = est_late_recov,
+                     # radius on x direction:
+                     a = hiCI_resist - est_resist,
+                     # radius on y direction:
+                     b = hiCI_late_recov - est_late_recov,
+                     angle = 0)) +
+    labs(title = "Decoupling of productivity (NO extinct reps)",
+         x = "Resistance +/- 95% CI",
+         y = "Late Recovery +/- 95% CI",
+         colour = "Heat\nDuration",
+         fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+# finally estimate decoupling by getting the distance to the y=x line
+# calculate decoupling between resistance and early recovery
+early_decoupling <- t(with(decoupling_productivity,
+                           mapply(estimate_decoupling,
+                                  resist_est = est_resist,
+                                  resist_hiCI = hiCI_resist,
+                                  recov_est = est_early_recov,
+                                  recov_hiCI = hiCI_early_recov)))
+# add annotation
+early_decoupling <- cbind(decoupling_productivity[,1:2],
+                          early_decoupling)
+
+ggplot(early_decoupling,
+       aes(x = as.factor(Heat), y = est_decoupling)) +
+  facet_grid(~protegens) +
+  geom_hline(yintercept = 0, colour = "grey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(position = position_dodge(width = 0.5),
+                aes(ymin = loCI_decoupling, ymax = hiCI_decoupling),
+                alpha=0.4, width=0.1) +
+  labs(title = "Early recovery (NO extinct reps)",
+       y = "Decoupling +/- 95% CI",
+       x = "Heat Duration (hrs)")
+
+
+# calculate decoupling between resistance and late recovery
+late_decoupling <- t(with(decoupling_productivity,
+                           mapply(estimate_decoupling,
+                                  resist_est = est_resist,
+                                  resist_hiCI = hiCI_resist,
+                                  recov_est = est_late_recov,
+                                  recov_hiCI = hiCI_late_recov)))
+# add annotation
+late_decoupling <- cbind(decoupling_productivity[,1:2],
+                          late_decoupling)
+
+ggplot(late_decoupling,
+       aes(x = as.factor(Heat), y = est_decoupling)) +
+  facet_grid(~protegens) +
+  geom_hline(yintercept = 0, colour = "grey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(position = position_dodge(width = 0.5),
+                aes(ymin = loCI_decoupling, ymax = hiCI_decoupling),
+                alpha=0.4, width=0.1) +
+  scale_colour_viridis_d(option = "viridis", end=0.85) +
+  labs(title = "Late recovery (NO extinct reps)",
+       y = "Decoupling +/- 95% CI",
+       x = "Heat Duration (hrs)")
+```
+
+
+### Calculate the effect sizes marginal on protegens
+
+
+```{r, prod_NOextinct_effectSize}
+##############################
+# effect sizes with protegens as non-focal
+##############################
+# But we are not interested in the details of protegens. Let's do the post-hoc again now averaging across the effects of protegens.
+
+posthoc_6h <- emmeans(effect_6h_protegens, pairwise ~ Trtmt_Day, data = absDen_6h)
+posthoc_12h <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day, data = absDen_12h)
+posthoc_24h <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day, data = absDen_24h)
+posthoc_48h <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day, data = absDen_48h)
+
+# create a data.frame for plotting marginal effect sizes using a forest plot with the group labels
+productivity_effects <- data.frame()
+productivity_effects <- rbind(productivity_effects,
+                              get_posthoc_NOprot(posthoc_6h, heat_trtmt = 6),
+                              get_posthoc_NOprot(posthoc_12h, heat_trtmt = 12),
+                              get_posthoc_NOprot(posthoc_24h, heat_trtmt = 24),
+                              get_posthoc_NOprot(posthoc_48h, heat_trtmt = 48))
+
+
+## note that for the decoupling plots I am using a Bonferroni-corrected alpha.
+# let's get those confidence intervals because we will need them to plot decoupling below:
+posthoc_6h_WIDER <- emmeans(effect_6h_protegens, pairwise ~ Trtmt_Day, data = absDen_6h, level=0.9875)
+posthoc_12h_WIDER <- emmeans(effect_12h_protegens, pairwise ~ Trtmt_Day, data = absDen_12h, level=0.9875)
+posthoc_24h_WIDER <- emmeans(effect_24h_protegens, pairwise ~ Trtmt_Day, data = absDen_24h, level=0.9875)
+posthoc_48h_WIDER <- emmeans(effect_48h_protegens, pairwise ~ Trtmt_Day, data = absDen_48h, level=0.9875)
+# put these wider CIs into a table
+widerCIs <- data.frame()
+widerCIs <- rbind(widerCIs,
+                  get_posthoc_NOprot(posthoc_6h_WIDER, heat_trtmt = 6),
+                  get_posthoc_NOprot(posthoc_12h_WIDER, heat_trtmt = 12),
+                  get_posthoc_NOprot(posthoc_24h_WIDER, heat_trtmt = 24),
+                  get_posthoc_NOprot(posthoc_48h_WIDER, heat_trtmt = 48))
+# rename the columns to remind us that this is the Bonferroni corrected alpha
+colnames(widerCIs)[4:5] <- c("loCI_bonAlpha", "hiCI_bonAlpha")
+# combine the wider CIs with the effect sizes
+productivity_effects <- inner_join(productivity_effects,
+                                   widerCIs %>% select(-SE))
+rm(widerCIs)
+
+# re-order the levels of Trtmt_Day to go from resistance to recovery then rename them for nice plotting
+productivity_effects$Trtmt_Day <- factor(productivity_effects$Trtmt_Day,
+                                         levels = c("resist", "recov_1", "recov_2"))
+levels(productivity_effects$Trtmt_Day) <- c("Resistance", "Early Recovery", "Late Recovery")
+
+# plot with group labels
+ggplot(productivity_effects,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.1) +
+  geom_text(position = position_dodge(width = 0.5),
+            aes(x=-0.008, label=groups)) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Total Density",
+       y = "Heat duration (hrs)",
+       title = "protegens as non-focal predictor (i.e., marginalized)")
+
+
+#######
+# finally, we will do a series of pairwise two-tailed t-tests to compare between heat durations
+#######
+
+# estimate the sample sizes
+temp <- productivity_effects # copy the effects to temp
+productivity_effects <- rbind(temp %>% filter(Heat == 6) %>% mutate(n = estimate_n(absDen_6h)),
+                     temp %>% filter(Heat == 12) %>% mutate(n = estimate_n(absDen_12h)),
+                     temp %>% filter(Heat == 24) %>% mutate(n = estimate_n(absDen_24h)),
+                     temp %>% filter(Heat == 48) %>% mutate(n = estimate_n(absDen_48h)))
+rm(temp)
+
+# estimate the SD from the SE
+productivity_effects <- productivity_effects %>% mutate(SD = SE * sqrt(n)) %>%
+    # re-order by Heat and Trtmt_Day
+                          arrange(Heat, Trtmt_Day)
+
+# all pairwise combinations of comparisons between the same treatment day for different durations
+temp <- t(combn(c(1,4,7,10), 2))
+combos <- rbind(temp, temp+1, temp+2)
+rm(temp)
+# loop through all the combinations and do the t-tests
+prodEffects_ttests <- data.frame()
+for(i in 1:nrow(combos)){
+  prodEffects_ttests <- rbind(prodEffects_ttests,
+                             run_ttest(row_x = combos[i,1],
+                                       row_y = combos[i,2],
+                                       summary_stats_df = productivity_effects))
+}
+prodEffects_ttests$adjusted_p <- p.adjust(prodEffects_ttests$pvalue, method = "bonferroni")
+prodEffects_ttests$Trtmt_Day <- productivity_effects$Trtmt_Day[combos[,1]]
+prodEffects_ttests$Heat_1 <- productivity_effects$Heat[combos[,1]]
+prodEffects_ttests$Heat_2 <- productivity_effects$Heat[combos[,2]]
+
+print(prodEffects_ttests)
+# these p-values seem overly optimistic. Use alpha = 1*10^-3
+
+
+################################
+# Plot figure for main text: Figure 4b
+################################
+png(filename="./figures/Fig4B_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
+ggplot(productivity_effects,
+       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
+  geom_vline(xintercept = 0, colour="darkgrey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbarh(position = position_dodge(width = 0.5),
+                 aes(xmin = loCI, xmax = hiCI), height = 0.15) +
+  scale_colour_manual(values=trtmt_pal) +
+  labs(x = "Effect Size on Productivity",
+       y="Heat Duration (hrs)",
+       colour = "Treatment\nDay") +
+  theme(legend.position="none")
+dev.off()
+```
+
+
+#### Decoupling
+
+```{r, decoupling_NOextinct}
+decoupling_productivity <- productivity_effects %>% select(-loCI, -hiCI)
+# keep just the Bonferroni-corrected (wider) confidence intervals
+decoupling_productivity <- decoupling_productivity %>%
+                              rename(loCI = loCI_bonAlpha,
+                                     hiCI = hiCI_bonAlpha)
+# for easier coding, rename the levels of Trtmt_Day
+levels(decoupling_productivity$Trtmt_Day) <- c("resist", "early_recov", "late_recov")
+
+# create data.frame for plotting
+decoupling_productivity <- decoupling_productivity %>%
+                            select(-n, -SD) %>%
+                              pivot_wider(names_from = Trtmt_Day,
+                                          values_from = c(est, loCI, hiCI, SE, groups))
+
+# columns that indicate if resistance is significantly different from recovery
+decoupling_productivity$early_recov_VS_resist <- mapply(are_groups_different,
+                                                        decoupling_productivity$groups_early_recov,
+                                                        decoupling_productivity$groups_resist)
+decoupling_productivity$late_recov_VS_resist <- mapply(are_groups_different,
+                                                       decoupling_productivity$groups_late_recov,
+                                                       decoupling_productivity$groups_resist)
+# clean up extra columns
+decoupling_productivity <- decoupling_productivity %>% select(-groups_resist, -groups_early_recov, -groups_late_recov)
+
+
+# first plot the decoupling on early recovery
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_early_recov, colour = as.factor(Heat))) +
+  #facet_grid(~CommRich) +
+  geom_hline(yintercept = 0, colour="grey") +
+  geom_vline(xintercept = 0, colour="grey") +
+  geom_abline(slope = 1) +
+  geom_point(shape=21, size=3, aes(fill=as.factor(early_recov_VS_resist))) +
+  geom_errorbarh(aes(xmin = loCI_resist, xmax = hiCI_resist), height=0) +
+  geom_errorbar(aes(ymin = loCI_early_recov, ymax = hiCI_early_recov), width=0) +
+  # center the plot on 0,0:
+  scale_x_continuous(limits = c(-0.019, 0.019), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-0.0014, 0.0014), expand = c(0, 0)) +
+  scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+  scale_fill_manual(values=c("white", "black")) +
+  labs(title = "Decoupling of productivity (NO extinct reps)",
+       x = "Resistance +/- 95% CI",
+       y = "Early Recovery +/- 95% CI",
+       colour = "Heat\nDuration",
+       fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+# here's another way to plot it where the confidence intervals are shown as ellipses:
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_early_recov, colour = as.factor(Heat))) +
+    geom_hline(yintercept = 0, colour="grey") +
+    geom_vline(xintercept = 0, colour="grey") +
+    geom_abline(slope = 1) +
+    geom_point(shape=21, size=3, aes(fill=as.factor(early_recov_VS_resist))) +
+    scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+    scale_fill_manual(values=c("white", "black")) +
+    geom_ellipse(aes(x0 = est_resist,
+                     y0 = est_early_recov,
+                     # radius on x direction:
+                     a = hiCI_resist - est_resist,
+                     # radius on y direction:
+                     b = hiCI_early_recov - est_early_recov,
+                     angle = 0)) +
+    labs(title = "Decoupling of productivity (NO extinct reps)",
+         x = "Resistance +/- 95% CI",
+         y = "Early Recovery +/- 95% CI",
+         colour = "Heat\nDuration",
+         fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+
+# next plot the decoupling on later recovery
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_late_recov, colour = as.factor(Heat))) +
+  geom_hline(yintercept = 0, colour="grey") +
+  geom_vline(xintercept = 0, colour="grey") +
+  geom_abline(slope = 1) +
+  geom_point(shape=21, size=3, aes(fill=as.factor(late_recov_VS_resist))) +
+  geom_errorbarh(aes(xmin = loCI_resist, xmax = hiCI_resist), height=0) +
+  geom_errorbar(aes(ymin = loCI_late_recov, ymax = hiCI_late_recov), width=0) +
+  # center the plot on 0,0:
+  scale_x_continuous(limits = c(-0.019, 0.019), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-0.003, 0.003), expand = c(0, 0)) +
+  scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+  scale_fill_manual(values=c("white", "black")) +
+  labs(title = "Decoupling of productivity (NO extinct reps)",
+       x = "Resistance +/- 95% CI",
+       y = "Late Recovery +/- 95% CI",
+       colour = "Heat\nDuration",
+       fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+# late recovery with CI plotted as ellipses:
+ggplot(decoupling_productivity,
+       aes(x = est_resist, y = est_late_recov, colour = as.factor(Heat))) +
+    geom_hline(yintercept = 0, colour="grey") +
+    geom_vline(xintercept = 0, colour="grey") +
+    geom_abline(slope = 1) +
+    geom_point(shape=21, size=3, aes(fill=as.factor(late_recov_VS_resist))) +
+    scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+    scale_fill_manual(values=c("white", "black")) +
+    geom_ellipse(aes(x0 = est_resist,
+                     y0 = est_late_recov,
+                     # radius on x direction:
+                     a = hiCI_resist - est_resist,
+                     # radius on y direction:
+                     b = hiCI_late_recov - est_late_recov,
+                     angle = 0)) +
+    labs(title = "Decoupling of productivity (NO extinct reps)",
+         x = "Resistance +/- 95% CI",
+         y = "Late Recovery +/- 95% CI",
+         colour = "Heat\nDuration",
+         fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+# finally estimate decoupling by getting the distance to the y=x line
+# calculate decoupling between resistance and early recovery
+early_decoupling <- t(with(decoupling_productivity,
+                           mapply(estimate_decoupling,
+                                  resist_est = est_resist,
+                                  resist_hiCI = hiCI_resist,
+                                  recov_est = est_early_recov,
+                                  recov_hiCI = hiCI_early_recov)))
+# add annotation
+early_decoupling <- cbind(decoupling_productivity[,1:2],
+                          early_decoupling)
+
+ggplot(early_decoupling,
+       aes(x = as.factor(Heat), y = est_decoupling)) +
+  geom_hline(yintercept = 0, colour = "grey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(position = position_dodge(width = 0.5),
+                aes(ymin = loCI_decoupling, ymax = hiCI_decoupling),
+                alpha=0.4, width=0.1) +
+  labs(title = "Early recovery (NO extinct reps)",
+       y = "Decoupling +/- 95% CI",
+       x = "Heat Duration (hrs)")
+
+
+# calculate decoupling between resistance and late recovery
+late_decoupling <- t(with(decoupling_productivity,
+                           mapply(estimate_decoupling,
+                                  resist_est = est_resist,
+                                  resist_hiCI = hiCI_resist,
+                                  recov_est = est_late_recov,
+                                  recov_hiCI = hiCI_late_recov)))
+# add annotation
+late_decoupling <- cbind(decoupling_productivity[,1:2],
+                          late_decoupling)
+
+ggplot(late_decoupling,
+       aes(x = as.factor(Heat), y = est_decoupling)) +
+  geom_hline(yintercept = 0, colour = "grey") +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(position = position_dodge(width = 0.5),
+                aes(ymin = loCI_decoupling, ymax = hiCI_decoupling),
+                alpha=0.4, width=0.1) +
+  scale_colour_viridis_d(option = "viridis", end=0.85) +
+  labs(title = "Late recovery (NO extinct reps)",
+       y = "Decoupling +/- 95% CI",
+       x = "Heat Duration (hrs)")
+
+# clean up
+#rm(absDen_6h, absDen_12h, absDen_24h, absDen_48h, absDen_mods6h, absDen_mods12h, absDen_mods24h, absDen_mods48h,
+#   combos, decoupling_productivity, early_decoupling, late_decoupling,
+#   effect_6h, effect_12h, effect_24h, effect_48h, effect_6h_protegens, effect_12h_protegens, effect_24h_protegens, effect_48h_protegens,
+#   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h, posthoc_6h_WIDER, posthoc_12h_WIDER, posthoc_24h_WIDER, posthoc_48h_WIDER, posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthocPROT_6h_WIDER, posthocPROT_12h_WIDER, posthocPROT_24h_WIDER, posthocPROT_48h_WIDER,
+#   prod_effects_protegens, prodEffects_ttests, productivity_effects, productivity_protegens)
+```
 
