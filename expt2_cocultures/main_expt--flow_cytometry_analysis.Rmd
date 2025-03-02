@@ -1040,7 +1040,7 @@ What we see from the plot above is that the misclassification rate can get as hi
 
 Therefore let's set 25% as the threshold for contamination. This means that any replicates that show >25% relative density for a species that was not inoculated there are defined as contaminated. All time-points from these contaminated replicates are completely removed from the downstream analysis.
 
-```{r, plot_finalized_timeseries}
+```{r, plot_intermed_timeseries}
 rm(contamin.df) # remove anything we may have had above.
 
 # for now let's define contamination as >25% for something that should not be there.
@@ -1823,7 +1823,7 @@ This tells us that the most important predictors are: 1. the duration of the hea
 
 A final possibility is that the growth rates of the different communities can explain whether they go extinct. Let's check if the average growth rate of the community at 30C can predict its extinction...
 
-```{r, extinction_InnocRichness}
+```{r, extinction_mu}
 ext_mod.expect_mu <- glmmTMB(survived ~ Heat + community_expected_mu,
                           data = extinct.df,
                           family = binomial,
@@ -3048,7 +3048,7 @@ The overall results are the same as we found above. This shows that excluding th
 
 How is total community density impacted during and after heat? Let's first plot it directly to get an idea of what we're dealing with:
 
-```{r, shannonD_prelim_plot}
+```{r, productivity_prelim_plot}
 ggplot(absDen_forFit %>% filter(!is.na(Total_density)), # remove NA values
        aes(y=Total_density, x=Day, fill=community_expected_mu)) +
   facet_grid(protegens~as.factor(Heat)) +
