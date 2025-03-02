@@ -3016,7 +3016,7 @@ fig4a <- ggplot(div_effects,
           geom_point(position = position_dodge(width = 0.5)) +
           geom_errorbarh(position = position_dodge(width = 0.5),
                          aes(xmin = loCI, xmax = hiCI), height = 0.15) +
-          scale_x_continuous(limits = c(-4.35, 0.5), expand = c(0,0)) +
+          scale_x_continuous(limits = c(-4.35, 1), expand = c(0,0)) +
           scale_colour_manual(values=trtmt_pal) +
           labs(x = "Effect Size on Shannon Diversity",
                y="Heat Duration (hrs)",
@@ -3030,16 +3030,14 @@ png(filename="./figures/Fig4A_plot.png", width = 4.48, height = 2.61, units = "i
 print(fig4a + theme(legend.position="none"))
 dev.off()
 
-print(fig4a)
-
 # cleanup
-#rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
-#   div_mods6h, div_mods12h, div_mods24h, div_mods48h,
-#   emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
-#   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
-#   get_effsize_CIs, get_posthoc, 
-#   div_effects_protegens, div_effects,
-#   plot_model_pred.CommRich, plot_model_pred.MU, fig4a)
+rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
+   div_mods6h, div_mods12h, div_mods24h, div_mods48h,
+   emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
+   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
+   get_effsize_CIs, get_posthoc, 
+   div_effects_protegens, div_effects,
+   plot_model_pred.CommRich, plot_model_pred.MU, fig4a)
 ```
 
 The overall results are the same as we found above. This shows that excluding the replicates that went extinct had no impact on the overall results.
@@ -3872,7 +3870,7 @@ ggplot(productivity_effects,
 
 Okay so it seems that adding the community growth rate as a predictor kinda changes everything. We still see decoupling between resistance and recovery but now the time frame of it varies depending on community composition. For the communities without protegens, decoupling happens sooner (e.g., between resistance and early recovery at 12h), is maximized sooner (at 24h), and then disappears completely by 48h (i.e., because of extinction). On the other hand, we already saw in the extinction analysis above that communities with protegens are protected from extinction for all heat pulse durations investigated here. For these communities, decoupling only begins to happen much later (at 48h). Although these results are more complex than what I had previously reported, they make more sense.
 
-## Calculate effect sizes conditional on protegens
+## Simpler model: Calculate effect sizes conditional on protegens
 
 Recall that we are NOT interested in reporting the results from the most complex model. Are the effect sizes of the preferred, less complex model ("\*prot +mu + prot\*CommRich") consistent with those above?
 
@@ -3996,7 +3994,7 @@ ggplot(prod_effects_protegens,
 ```
 
 
-### Decoupling
+### Decoupling conditional on protegens
 
 ```{r, decoupling_protegens}
 ###########################
@@ -4230,7 +4228,7 @@ ggplot(late_decoupling,
        x = "Heat Duration (hrs)")
 ```
 
-## Calculate the effect sizes marginal on protegens
+## Simpler model: Calculate the effect sizes marginal on protegens
 
 ```{r, productivity_effectSize}
 ##############################
@@ -4328,29 +4326,11 @@ prodEffects_ttests$Heat_2 <- productivity_effects$Heat[combos[,2]]
 
 print(prodEffects_ttests)
 # these p-values seem overly optimistic. Use alpha = 1*10^-3
-
-
-################################
-# Plot figure for main text: Figure 4b
-################################
-png(filename="./figures/Fig4B_plot.png", width = 4.48, height = 2.61, units = "in", res=300)
-ggplot(productivity_effects,
-       aes(x = est, y = as.factor(Heat), colour = Trtmt_Day)) +
-  geom_vline(xintercept = 0, colour="darkgrey") +
-  geom_point(position = position_dodge(width = 0.5)) +
-  geom_errorbarh(position = position_dodge(width = 0.5),
-                 aes(xmin = loCI, xmax = hiCI), height = 0.15) +
-  scale_colour_manual(values=trtmt_pal) +
-  labs(x = "Effect Size on Productivity",
-       y="Heat Duration (hrs)",
-       colour = "Treatment\nDay") +
-  theme(legend.position="none")
-dev.off()
 ```
 
 Awesome! The effect sizes of the simpler model are indeed consistent with those from the complex model. We will focus on the parameter estimates and effect sizes from the simpler model.
 
-### Decoupling
+### Decoupling marginal on protegens
 
 
 ```{r, decoupling}
@@ -4757,7 +4737,7 @@ Annoyingly enough, the best model *as well as* the preferred model are changed n
 
 Welp, I'm going to still use the "\*prot +mu + prot\*CommRich" model. There's a different result now for late recovery at 48h: a positive effect of heat duration. When I tried to do the downstream analysis with the model preferred for the extinction data, "", the results were the same. So this seems to be describing a trend that's present in the data and not an issue with the model selection itself.
 
-### Calculate effect sizes conditional on protegens
+### Calculate effect sizes conditional on protegens (No extinctions)
 
 ```{r, prod_NOextinct_effectSize_protegens}
 # plot the effect size contingent on protegens
@@ -4887,7 +4867,7 @@ ggplot(prod_effects_protegens,
 ```
 
 
-#### Decoupling
+#### Decoupling conditional on protegens (No extinctions)
 
 ```{r, decoupling_NOextinct_protegens}
 decoupling_productivity <- prod_effects_protegens %>% select(-loCI, -hiCI)
@@ -5054,7 +5034,7 @@ ggplot(late_decoupling,
 ```
 
 
-### Calculate the effect sizes marginal on protegens
+### Calculate the effect sizes marginal on protegens (No extinctions)
 
 
 ```{r, prod_NOextinct_effectSize}
@@ -5174,7 +5154,7 @@ dev.off()
 ```
 
 
-#### Decoupling
+#### Decoupling marginal on protegens (No extinctions)
 
 ```{r, decoupling_NOextinct}
 decoupling_productivity <- productivity_effects %>% select(-loCI, -hiCI)
@@ -5247,24 +5227,32 @@ ggplot(decoupling_productivity,
 
 
 # next plot the decoupling on later recovery
-ggplot(decoupling_productivity,
-       aes(x = est_resist, y = est_late_recov, colour = as.factor(Heat))) +
-  geom_hline(yintercept = 0, colour="grey") +
-  geom_vline(xintercept = 0, colour="grey") +
-  geom_abline(slope = 1) +
-  geom_point(shape=21, size=3, aes(fill=as.factor(late_recov_VS_resist))) +
-  geom_errorbarh(aes(xmin = loCI_resist, xmax = hiCI_resist), height=0) +
-  geom_errorbar(aes(ymin = loCI_late_recov, ymax = hiCI_late_recov), width=0) +
-  # center the plot on 0,0:
-  scale_x_continuous(limits = c(-0.019, 0.019), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(-0.003, 0.003), expand = c(0, 0)) +
-  scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
-  scale_fill_manual(values=c("white", "black")) +
-  labs(title = "Decoupling of productivity (NO extinct reps)",
-       x = "Resistance +/- 95% CI",
-       y = "Late Recovery +/- 95% CI",
-       colour = "Heat\nDuration",
-       fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+fig5a <- ggplot(decoupling_productivity,
+            aes(x = est_resist, y = est_late_recov, colour = as.factor(Heat))) +
+          geom_hline(yintercept = 0, colour="grey") +
+          geom_vline(xintercept = 0, colour="grey") +
+          geom_abline(slope = 1) +
+          geom_point(shape=21, size=2, aes(fill=as.factor(late_recov_VS_resist))) +
+          geom_errorbarh(aes(xmin = loCI_resist, xmax = hiCI_resist), height=0) +
+          geom_errorbar(aes(ymin = loCI_late_recov, ymax = hiCI_late_recov), width=0) +
+          # center the plot on 0,0:
+          scale_x_continuous(limits = c(-0.019, 0.019), expand = c(0, 0)) +
+          scale_y_continuous(limits = c(-0.003, 0.003), expand = c(0, 0)) +
+          scale_colour_viridis_d(option = "plasma", begin=0.2, end = 0.9) +
+          scale_fill_manual(values=c("white", "black")) +
+          labs(x = "Resistance",
+               y = "Late Recovery",
+               colour = "Heat\nDuration",
+               fill="Resistance\nvs. Recovery\nSignificantly\nDifferent?")
+
+print(fig5a + labs(title = "Decoupling of productivity (NO extinct reps)"))
+
+################################
+# Plot figure for main text: Figure 5a
+################################
+png(filename="./figures/Fig5A.png", width = 6.25, height = 3.68, units = "in", res=300)
+print(fig5a)
+dev.off()
 
 # late recovery with CI plotted as ellipses:
 ggplot(decoupling_productivity,
@@ -5320,26 +5308,34 @@ late_decoupling <- t(with(decoupling_productivity,
                                   recov_est = est_late_recov,
                                   recov_hiCI = hiCI_late_recov)))
 # add annotation
-late_decoupling <- cbind(decoupling_productivity[,1:2],
+late_decoupling <- cbind(decoupling_productivity[,c(1:2, 15)],
                           late_decoupling)
 
-ggplot(late_decoupling,
-       aes(x = as.factor(Heat), y = est_decoupling)) +
-  geom_hline(yintercept = 0, colour = "grey") +
-  geom_point(position = position_dodge(width = 0.5)) +
-  geom_errorbar(position = position_dodge(width = 0.5),
-                aes(ymin = loCI_decoupling, ymax = hiCI_decoupling),
-                alpha=0.4, width=0.1) +
-  scale_colour_viridis_d(option = "viridis", end=0.85) +
-  labs(title = "Late recovery (NO extinct reps)",
-       y = "Decoupling +/- 95% CI",
-       x = "Heat Duration (hrs)")
+# plot for main text:
+fig5b <- ggplot(late_decoupling,
+                aes(x = as.factor(Heat), y = est_decoupling)) +
+          geom_hline(yintercept = 0, colour = "grey") +
+          geom_point(position = position_dodge(width = 0.5)) +
+          geom_errorbar(aes(ymin = loCI_decoupling, ymax = hiCI_decoupling),
+                        width=0.05) +
+          labs(y = "Decoupling",
+               x = "Heat Duration (hrs)")
+print(fig5b + labs(title = "Late recovery (NO extinct reps)"))
+
+################################
+# Plot figure for main text: Figure 5b
+################################
+png(filename="./figures/Fig5B.png", width = 4.7, height = 2.0, units = "in", res=300)
+print(fig5b)
+dev.off()
+
 
 # clean up
 #rm(absDen_6h, absDen_12h, absDen_24h, absDen_48h, absDen_mods6h, absDen_mods12h, absDen_mods24h, absDen_mods48h,
 #   combos, decoupling_productivity, early_decoupling, late_decoupling,
 #   effect_6h, effect_12h, effect_24h, effect_48h, effect_6h_protegens, effect_12h_protegens, effect_24h_protegens, effect_48h_protegens,
 #   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h, posthoc_6h_WIDER, posthoc_12h_WIDER, posthoc_24h_WIDER, posthoc_48h_WIDER, posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthocPROT_6h_WIDER, posthocPROT_12h_WIDER, posthocPROT_24h_WIDER, posthocPROT_48h_WIDER,
-#   prod_effects_protegens, prodEffects_ttests, productivity_effects, productivity_protegens)
+#   prod_effects_protegens, prodEffects_ttests, productivity_effects, productivity_protegens,
+# fig5a, fig5b)
 ```
 
