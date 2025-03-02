@@ -3016,11 +3016,13 @@ fig4a <- ggplot(div_effects,
           geom_point(position = position_dodge(width = 0.5)) +
           geom_errorbarh(position = position_dodge(width = 0.5),
                          aes(xmin = loCI, xmax = hiCI), height = 0.15) +
-          scale_x_continuous(limits = c(-4.35, 1), expand = c(0,0)) +
+          scale_x_continuous(limits = c(-4.35, 0.9), expand = c(0,0)) +
           scale_colour_manual(values=trtmt_pal) +
           labs(x = "Effect Size on Shannon Diversity",
                y="Heat Duration (hrs)",
                colour = "Treatment\nDay")
+
+print(fig4a)
 
 png(filename="./figures/Fig4_legend.png", width = 3.40, height = 2.90, units = "in", res=300)
 print(fig4a)
@@ -3031,13 +3033,13 @@ print(fig4a + theme(legend.position="none"))
 dev.off()
 
 # cleanup
-rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
-   div_mods6h, div_mods12h, div_mods24h, div_mods48h,
-   emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
-   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
-   get_effsize_CIs, get_posthoc, 
-   div_effects_protegens, div_effects,
-   plot_model_pred.CommRich, plot_model_pred.MU, fig4a)
+#rm(diversity_forFit, diversity_6h, diversity_12h, diversity_24h, diversity_48h,
+#   div_mods6h, div_mods12h, div_mods24h, div_mods48h,
+#   emm_6h, emm_12h, emm_24h, emm_48h, effect_6h, effect_12h, effect_24h, effect_48h,
+#   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h,
+#   get_effsize_CIs, get_posthoc, 
+#   div_effects_protegens, div_effects,
+#   plot_model_pred.CommRich, plot_model_pred.MU, fig4a)
 ```
 
 The overall results are the same as we found above. This shows that excluding the replicates that went extinct had no impact on the overall results.
@@ -5331,11 +5333,11 @@ dev.off()
 
 
 # clean up
-#rm(absDen_6h, absDen_12h, absDen_24h, absDen_48h, absDen_mods6h, absDen_mods12h, absDen_mods24h, absDen_mods48h,
-#   combos, decoupling_productivity, early_decoupling, late_decoupling,
-#   effect_6h, effect_12h, effect_24h, effect_48h, effect_6h_protegens, effect_12h_protegens, effect_24h_protegens, effect_48h_protegens,
-#   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h, posthoc_6h_WIDER, posthoc_12h_WIDER, posthoc_24h_WIDER, posthoc_48h_WIDER, posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthocPROT_6h_WIDER, posthocPROT_12h_WIDER, posthocPROT_24h_WIDER, posthocPROT_48h_WIDER,
-#   prod_effects_protegens, prodEffects_ttests, productivity_effects, productivity_protegens,
-# fig5a, fig5b)
+rm(absDen_6h, absDen_12h, absDen_24h, absDen_48h, absDen_mods6h, absDen_mods12h, absDen_mods24h, absDen_mods48h,
+   combos, decoupling_productivity, early_decoupling, late_decoupling,
+   effect_6h, effect_12h, effect_24h, effect_48h, effect_6h_protegens, effect_12h_protegens, effect_24h_protegens, effect_48h_protegens,
+   posthoc_6h, posthoc_12h, posthoc_24h, posthoc_48h, posthoc_6h_WIDER, posthoc_12h_WIDER, posthoc_24h_WIDER, posthoc_48h_WIDER, posthocPROT_6h, posthocPROT_12h, posthocPROT_24h, posthocPROT_48h, posthocPROT_6h_WIDER, posthocPROT_12h_WIDER, posthocPROT_24h_WIDER, posthocPROT_48h_WIDER,
+   prod_effects_protegens, prodEffects_ttests, productivity_effects, productivity_protegens,
+ fig5a, fig5b)
 ```
 
