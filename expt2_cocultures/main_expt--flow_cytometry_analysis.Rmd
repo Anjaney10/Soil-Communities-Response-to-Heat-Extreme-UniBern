@@ -1672,10 +1672,34 @@ orditorp(NMDS_no48, choices = c(2,3), display = "species", col="red", air = 0.1)
 
 # test for significance of environmental vector:
 gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE)
+# extract values about the environmental vector
+temp <- gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = FALSE)
+# print out the p-value:
+print(temp$df_arrows$p.val)
+# save the coordinates of the arrow
+arrow_1vs2 <- c(x = temp$df_arrows$x,
+                y = temp$df_arrows$y)
+
+# repeat for axis 1 vs 3
 gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE, choices=c(1,3))
+# extract values about the environmental vector
+temp <- gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = FALSE, choices=c(1,3))
+# print out the p-value:
+print(temp$df_arrows$p.val)
+# save the coordinates of the arrow
+arrow_1vs3 <- c(x = temp$df_arrows$x,
+                y = temp$df_arrows$y)
+
+# repeat for axis 2 vs 3
 gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE, choices=c(2,3))
-# print out the p-value
-gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = FALSE, alpha=0.5)$df_arrows$p.val
+# extract values about the environmental vector
+temp <- gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = FALSE, choices=c(2,3))
+# print out the p-value just in case it's different:
+print(temp$df_arrows$p.val)
+# save the coordinates of the arrow
+arrow_2vs3 <- c(x = temp$df_arrows$x,
+                y = temp$df_arrows$y)
+
 
 # okay now that we see this is significant, let's make a pretty plot of the NMDS to include in the supplement
   # first we have to return Heat to a factor with appropriate levels
@@ -1732,6 +1756,10 @@ ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
     geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # adding covariance ellipses according to distance # use size argument if ggplot2 < v. 3.4.0
     guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + # removes lines from colour part of the legend
     scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    geom_segment(aes(x = 0, y = 0,
+                     xend = arrow_1vs2["x"], yend = arrow_1vs2["y"]),
+                  arrow = arrow(length = unit(0.5, "cm")),
+                 linewidth = 0.5) +
     fave_theme + # not sure why I need this but I do to over-write the default grey theme
     labs(title="exlude: 48h without protegens")
 
@@ -1741,6 +1769,10 @@ ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
     geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
     guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
     scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    geom_segment(aes(x = 0, y = 0,
+                     xend = arrow_1vs3["x"], yend = arrow_1vs3["y"]),
+                  arrow = arrow(length = unit(0.5, "cm")),
+                 linewidth = 0.5) +
     fave_theme + 
     labs(title="exlude: 48h without protegens")
 
@@ -1750,11 +1782,16 @@ ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
     geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
     guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
     scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    geom_segment(aes(x = 0, y = 0,
+                     xend = arrow_2vs3["x"], yend = arrow_2vs3["y"]),
+                  arrow = arrow(length = unit(0.5, "cm")),
+                 linewidth = 0.5) +
     fave_theme + 
-    labs(title="exlude: 48h without protegens")
+    labs(colour = "Heat",
+         linetype = "P. protegens?", shape = "P. protegens?")
 
 # clean up
-rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, absDen_forOrd, absDen_wide_forOrd, g, plot1_2, absDen_wide_forOrd_no48, abundance_mat_no48, NMDS_no48)
+#rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, absDen_forOrd, absDen_wide_forOrd, g, plot1_2, absDen_wide_forOrd_no48, abundance_mat_no48, NMDS_no48, temp, arrow_1vs2, arrow_2vs3, arrow_1vs3)
 ```
 
 
