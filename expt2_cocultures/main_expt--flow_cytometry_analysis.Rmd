@@ -1526,19 +1526,6 @@ nmdsdata_test2_HeatxProt <- anosim(dist_mat,
                                    permutations = 999)
 plot(nmdsdata_test2_HeatxProt)
 summary(nmdsdata_test2_HeatxProt)
-
-# okay, let's say that we are satisfied with this significance testing...
-
-test <- absDen_wide_forOrd
-test$Heat <- as.character(levels(test$Heat))[test$Heat]
-test$Heat[test$Heat == "control"] <- 0
-test$Heat <- as.numeric(test$Heat)
-
-# let's see what the heat gradient looks like
-gg_ordiplot(try.NMDS, groups = absDen_wide_forOrd$protegens, plot = TRUE)
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5) # notice this gradient is not significant!!!
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(1,3))
-gg_envfit(try.NMDS, env = test$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(2,3))
 ```
 
 Great!, This summarizes the same result that I found with the other indices: presence of P.protegens is the most important thing. Communities where this species was present look quite similar across different heat treatments. Longer heat durations push the communities toward different direction, until a threshold is reached at the longest heat treatment (48h).
@@ -1594,10 +1581,183 @@ ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
     theme(legend.position="none")
 
 dev.off()
+```
+
+## Gradient with 48h
+
+```{r, nmds_gradient}
+# let's check if the gradient of heat pulse duration is significant:
+absDen_wide_forOrd$Heat <- as.character(levels(absDen_wide_forOrd$Heat))[absDen_wide_forOrd$Heat]
+absDen_wide_forOrd$Heat[absDen_wide_forOrd$Heat == "control"] <- 0
+absDen_wide_forOrd$Heat <- as.numeric(absDen_wide_forOrd$Heat)
+
+# let's see what the heat gradient looks like
+gg_ordiplot(try.NMDS, groups = absDen_wide_forOrd$protegens, plot = TRUE)
+
+# here's another way to do it:
+gg_envfit(try.NMDS, env = absDen_wide_forOrd$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5) # notice this gradient is not significant!!!
+gg_envfit(try.NMDS, env = absDen_wide_forOrd$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(1,3)) # notice this gradient is not significant!!!
+gg_envfit(try.NMDS, env = absDen_wide_forOrd$Heat, groups = absDen_wide_forOrd$protegens, plot = TRUE, alpha=0.5, choices=c(2,3)) # notice this gradient is not significant!!!
+# display the p-value:
+gg_envfit(try.NMDS, env = absDen_wide_forOrd$Heat, groups = absDen_wide_forOrd$protegens, alpha=0.5, plot = FALSE)$df_arrows$p.val
+```
+
+The gradient is *NOT* significant.
+
+## Gradient without 48h
+
+Let's re-do the analysis this time removing the 48h duration in order to check if the gradient becomes significant.
+
+```{r, nmds_no48h_gradient}
+# exclude 48h duration data
+absDen_wide_forOrd_no48 <- absDen_wide_forOrd %>% filter(Heat < 48)
+abundance_mat_no48 <- as.matrix(absDen_wide_forOrd_no48[,9:20])
+# re-do the NMDS with k=3
+NMDS_no48 <- metaMDS(abundance_mat_no48, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
+# check the stress value. For the data with 48h it was 0.05653636
+NMDS_no48$stress # it's smaller than before
+
+# let's get a general idea of what this NMDS is separating...
+# plot the results for axis 1 & 2
+ordiplot(NMDS_no48, type = "n") # create blank ordination plot
+orditorp(NMDS_no48, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(NMDS_no48, display = "species", col="red", air = 0.1) # add species names in red
+
+# plot the results for axis 1 & 3
+ordiplot(NMDS_no48, choices = c(1,3), type = "n") # create blank ordination plot
+orditorp(NMDS_no48, choices = c(1,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(NMDS_no48, choices = c(1,3), display = "species", col="red", air = 0.1) # add species names in red
+
+# plot the results for axis 2 & 3
+ordiplot(NMDS_no48, choices = c(2,3), type = "n") # create blank ordination plot
+orditorp(NMDS_no48, choices = c(2,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(NMDS_no48, choices = c(2,3), display = "species", col="red", air = 0.1) # add species names in red
+
+# test for significance
+gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE, alpha=0.5)
+
+gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE, alpha=0.5)$df_arrows$p.val
+```
+
+The NMDS looks similar to when the 48h heat pulse data was included. But it's not exactly the same, as is to be expected. 
+The gradient is *NOT* significant when we remove all of the 48h heat pulse duration data.
+
+## Gradient with 48h protegens but none of the 48h others
+
+```{r, nmds_noprotegens0_48h_gradient}
+# exclude 48h duration data
+absDen_wide_forOrd_no48 <- rbind(absDen_wide_forOrd %>% filter(Heat < 48),
+                                 absDen_wide_forOrd %>% filter(Heat == 48, protegens == 1))
+abundance_mat_no48 <- as.matrix(absDen_wide_forOrd_no48[,9:20])
+# re-do the NMDS with k=3
+NMDS_no48 <- metaMDS(abundance_mat_no48, distance = "bray", k = 3, autotransform = TRUE, trymax=100)
+# check the stress value. For the data with 48h it was 0.05653636
+NMDS_no48$stress # it's smaller than before
+
+# let's get a general idea of what this NMDS is separating...
+# plot the results for axis 1 & 2
+ordiplot(NMDS_no48, type = "n") # create blank ordination plot
+orditorp(NMDS_no48, display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(NMDS_no48, display = "species", col="red", air = 0.1) # add species names in red
+
+# plot the results for axis 1 & 3
+ordiplot(NMDS_no48, choices = c(1,3), type = "n") # create blank ordination plot
+orditorp(NMDS_no48, choices = c(1,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(NMDS_no48, choices = c(1,3), display = "species", col="red", air = 0.1) # add species names in red
+
+# plot the results for axis 2 & 3
+ordiplot(NMDS_no48, choices = c(2,3), type = "n") # create blank ordination plot
+orditorp(NMDS_no48, choices = c(2,3), display = "sites", cex = 0.5, air = 0.1) # add row numbers in black
+orditorp(NMDS_no48, choices = c(2,3), display = "species", col="red", air = 0.1) # add species names in red
+
+# test for significance of environmental vector:
+gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE)
+gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE, choices=c(1,3))
+gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = TRUE, choices=c(2,3))
+# print out the p-value
+gg_envfit(NMDS_no48, env = absDen_wide_forOrd_no48$Heat, groups = absDen_wide_forOrd_no48$protegens, plot = FALSE, alpha=0.5)$df_arrows$p.val
+
+# okay now that we see this is significant, let's make a pretty plot of the NMDS to include in the supplement
+  # first we have to return Heat to a factor with appropriate levels
+absDen_wide_forOrd_no48$Heat <- factor(absDen_wide_forOrd_no48$Heat,
+                                       levels = c(0, 6, 12, 24, 48))
+levels(absDen_wide_forOrd_no48$Heat)[1] <- "control"
+
+
+nmds_for_ggplot <- cbind(absDen_wide_forOrd_no48[,1:8],
+                         as.data.frame(scores(NMDS_no48)$sites))
+
+# create a new factor that defines the combination of heat and protegens
+nmds_for_ggplot <- nmds_for_ggplot %>% unite("HeatxProtegens", c(Heat, protegens), remove = FALSE)
+nmds_for_ggplot$HeatxProtegens <- factor(nmds_for_ggplot$HeatxProtegens,
+                                         levels = c("6_0", "6_1", "12_0", "12_1", "24_0", "24_1", "48_1", "control_0", "control_1"))
+
+
+
+# create empty dataframes to combine NMDS data with ellipse data
+ellipse12_df <- ellipse13_df <- ellipse23_df <- data.frame() # numbers indicate the ordination axes
+# adding data for ellipses, using HeatxProtegens as a grouping factor
+for(g in levels(nmds_for_ggplot$HeatxProtegens)){
+  ellipse12_df <- rbind(ellipse12_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
+                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS2),
+                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
+                                                                     center=c(mean(NMDS1),mean(NMDS2)))))
+                                  , HeatxProtegens=g))
+  ellipse13_df <- rbind(ellipse13_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
+                                                     veganCovEllipse(cov.wt(cbind(NMDS1, NMDS3),
+                                                                            wt=rep(1/length(NMDS1),length(NMDS1)))$cov,
+                                                                     center=c(mean(NMDS1),mean(NMDS3)))))
+                                  , HeatxProtegens=g))
+  ellipse23_df <- rbind(ellipse23_df, cbind(as.data.frame(with(nmds_for_ggplot[nmds_for_ggplot$HeatxProtegens==g,],
+                                                     veganCovEllipse(cov.wt(cbind(NMDS2, NMDS3),
+                                                                            wt=rep(1/length(NMDS2),length(NMDS2)))$cov,
+                                                                     center=c(mean(NMDS2),mean(NMDS3)))))
+                                  , HeatxProtegens=g))
+}
+
+# now we separate the HeatxProtegens columns:
+ellipse12_df <- ellipse12_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
+ellipse12_df$Heat <- factor(ellipse12_df$Heat,
+                            levels(nmds_for_ggplot$Heat))
+ellipse13_df <- ellipse13_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
+ellipse13_df$Heat <- factor(ellipse13_df$Heat, levels = levels(nmds_for_ggplot$Heat))
+ellipse23_df <- ellipse23_df %>% separate(HeatxProtegens, c("Heat", "protegens"))
+ellipse23_df$Heat <- factor(ellipse23_df$Heat, levels = levels(nmds_for_ggplot$Heat))
+
+nmds_for_ggplot$protegens <- as.character(nmds_for_ggplot$protegens) # this needs to be discrete (could also be a factor)
+
+# and finally we can make the plots:
+ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS2)) +
+    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + # adding different colours and shapes for points at different distances
+    geom_path(data=ellipse12_df, aes(x=NMDS1, y=NMDS2, colour=Heat, linetype=protegens), linewidth=1) + # adding covariance ellipses according to distance # use size argument if ggplot2 < v. 3.4.0
+    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + # removes lines from colour part of the legend
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + # not sure why I need this but I do to over-write the default grey theme
+    labs(title="exlude: 48h without protegens")
+
+# axis 1 vs 3
+ggplot(data = nmds_for_ggplot, aes(NMDS1, NMDS3)) +
+    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
+    geom_path(data=ellipse13_df, aes(x=NMDS1, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
+    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + 
+    labs(title="exlude: 48h without protegens")
+
+# axis 2 vs 3
+ggplot(data = nmds_for_ggplot, aes(NMDS2, NMDS3)) +
+    geom_point(aes(color = Heat, shape = protegens), alpha=0.4) + 
+    geom_path(data=ellipse23_df, aes(x=NMDS2, y=NMDS3, colour=Heat, linetype=protegens), linewidth=1) + 
+    guides(color = guide_legend(override.aes = list(linetype=rep(NA,5)))) + 
+    scale_colour_viridis_d(option = "plasma", begin=0.05, end = 0.9) +
+    fave_theme + 
+    labs(title="exlude: 48h without protegens")
 
 # clean up
-rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, test, absDen_forOrd, absDen_wide_forOrd, g, plot1_2)
+rm(abundance_matrix, scree_out, try.NMDS, nmds_for_ggplot, ellipse12_df, ellipse13_df, ellipse23_df, nmdsdata_test_Heat, nmdsdata_test_Prot, nmdsdata_test_HeatxProt, dist_mat, dispersion, nmdsdata_test2_HeatxProt, absDen_forOrd, absDen_wide_forOrd, g, plot1_2, absDen_wide_forOrd_no48, abundance_mat_no48, NMDS_no48)
 ```
+
+
 
 # Richness
 
@@ -1867,6 +2027,12 @@ BIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_p
 # wow, I'm shocked that this growth rate model is actually better. Let's double check that...
 anova(ext_mod.heat_plus_prot, ext_mod.exptmu_prot)
 anova(ext_mod.heat_plus_prot, ext_mod.avemu_prot)
+
+# get the 95% confidence intervals:
+print("expected mu:")
+confint(ext_mod.exptmu_prot)
+print("realized average mu:")
+confint(ext_mod.avemu_prot)
 
 # and let's report the R-squared
 efronRSquared(residual = residuals(ext_mod.exptmu_prot, type="response"), 
