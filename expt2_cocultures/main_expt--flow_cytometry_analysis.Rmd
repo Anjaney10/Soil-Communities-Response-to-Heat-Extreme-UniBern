@@ -1996,6 +1996,30 @@ ext_mod.exptmu_prot <- glmmTMB(survived ~ Heat + community_expected_mu + protege
                           control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
 simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
 
+ext_mod.exptmuXprot <- glmmTMB(survived ~ Heat + community_expected_mu*protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
+
+ext_mod.heatXexptmu_prot <- glmmTMB(survived ~ Heat*community_expected_mu + protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
+
+ext_mod.heatXprot_exptmu <- glmmTMB(survived ~ Heat*protegens + community_expected_mu,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
+
+ext_mod.heatXprotXexptmu <- glmmTMB(survived ~ Heat*protegens*community_expected_mu,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+simulateResiduals(fittedModel = ext_mod.exptmu_prot, plot = TRUE)
+
 ext_mod.averaged_mu <- glmmTMB(survived ~ Heat + community_averaged_mu,
                           data = extinct.df,
                           family = binomial,
@@ -2020,13 +2044,16 @@ summary(ext_mod.avemu_prot)
 summary(ext_mod.exptmu_prot_resist)
 
 ## this should go in a single table instead of 3 diferent ones:
-AIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(AIC)
-AICc(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(AICc)
-BIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist) %>% arrange(BIC)
+AIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist, ext_mod.exptmuXprot, ext_mod.heatXexptmu_prot, ext_mod.heatXprot_exptmu, ext_mod.heatXprotXexptmu) %>% arrange(AIC)
+AICc(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist, ext_mod.exptmuXprot, ext_mod.heatXexptmu_prot, ext_mod.heatXprot_exptmu, ext_mod.heatXprotXexptmu) %>% arrange(AICc)
+BIC(ext_mod.heat, ext_mod.heat_plus_prot, ext_mod.rich_heatXprot, ext_mod.heat_plus_resist, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, ext_mod.exptmu_prot_resist, ext_mod.exptmuXprot, ext_mod.heatXexptmu_prot, ext_mod.heatXprot_exptmu, ext_mod.heatXprotXexptmu) %>% arrange(BIC)
 
 # wow, I'm shocked that this growth rate model is actually better. Let's double check that...
 anova(ext_mod.heat_plus_prot, ext_mod.exptmu_prot)
 anova(ext_mod.heat_plus_prot, ext_mod.avemu_prot)
+
+# let's check if the expected_mu model with interactions is able to get a better estimate on the effect of protegens:
+summary(ext_mod.exptmuXprot) # no, it's the same
 
 # get the 95% confidence intervals:
 print("expected mu:")
@@ -2044,7 +2071,9 @@ efronRSquared(residual = residuals(ext_mod.avemu_prot, type="response"),
               statistic = "EfronRSquared")
 ```
 
-Ok, so neither the community_expected_mu nor the community_averaged_mu are as good predictors as just heat duration and presence/absence of protegens. But when we add the presence/absence of protegens to either the community_expected_mu or community_averaged_mu, we get very good models that are significantly better than the one reported above. e.g., The model with just heat duration and protegens presence/absence explains 50% of the variation, while models explain 70-75% of the variation. Another way to report this result is to give the $\delta$AIC or $\delta$BIC.
+Ok, so neither the community_expected_mu nor the community_averaged_mu are as good predictors as just heat duration and presence/absence of protegens. But when we add the presence/absence of protegens to either the community_expected_mu or community_averaged_mu, we get very good models that are significantly better than the one reported above. e.g., The model with just heat duration and protegens presence/absence explains 50% of the variation, while models explain 70-75% of the variation. Another way to report this result is to give the $\Delta$AIC or $\Delta$BIC.
+
+Most of the models with community_expected_mu and interactions failed to converge. The one that succeeded is about the same as the simpler, additive model ($\Delta$AIC = 2) but it's definitely less preferred by BIC than the simpler additive model ($\Delta$BIC = 5.78). In addition, there is absolutely no improvement in the estimate for protegens in this interactions model (and the interaction itself cannot be reliably estimated either).
 
 Although the community_averaged_mu is a better fit, I prefer to use the community_expected_mu because it fits better in the framework of "can we predict microbial community dynamics from the species traits?" Moreover, the fit (at least for the extinction data) is not that much worse for the community_expected_mu as compared to the community_averaged_mu -- and both are insufficient to explain the data without the effect of protegens anyway!
 
@@ -2053,6 +2082,42 @@ absDensity <- absDensity %>% select(-community_averaged_mu)
 absDen_forFit <- absDen_forFit %>% select(-community_averaged_mu)
 extinct.df <- extinct.df %>% select(-community_averaged_mu)
 ```
+
+## Odds ratios
+
+For easier interpretation of the logistic regression effect sizes, let's get the odds ratios of extinction. (Note that above we were getting the odds ratios of *survival*).
+
+```{r, logistic_extinction_odds}
+best_model <- glmmTMB((1-survived) ~ Heat + community_expected_mu + protegens,
+                          data = extinct.df,
+                          family = binomial,
+                          control = glmmTMBControl(optCtrl = list(iter.max = 500000,eval.max = 500000)))
+
+# check that this result is consistent with the model we had before
+summary(best_model) # it is indeed consistent
+# print the odds ratios
+exp(confint(best_model))
+
+# get the number of replicates that either did or did not have protegens for each heat treatment:
+extinct.df %>% mutate(died = 1-survived) %>%
+  group_by(protegens, Heat) %>%
+    summarise(total_reps = n(),
+              survived = sum(survived),
+              extinct = sum(died)) %>%
+      as.data.frame()
+
+# do the same but for putida
+extinct.df %>% mutate(died = 1-survived) %>%
+  group_by(putida, Heat) %>%
+    summarise(total_reps = n(),
+              survived = sum(survived),
+              extinct = sum(died)) %>%
+      as.data.frame()
+
+rm(best_model)
+```
+
+The effect of protegens is large but unreliable. I also report the total number of replicates with protegens at 24h and 48h and with putida at 24h and 48h just to give an idea.
 
 ## Plot
 
@@ -2099,7 +2164,7 @@ ggplot(extinct_forplot %>% filter(predictor != "protegens1"),
   geom_errorbarh(aes(xmin = loCI, xmax = hiCI), height=0)
 
 # clean up
-rm(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_resist, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, extinct_forplot, ext_mod.exptmu_prot_resist)
+rm(ext_mod.heat, ext_mod.heat_plus_rich, ext_mod.heat_plus_resist, ext_mod.heat_plus_prot, ext_mod.heat_by_rich, ext_mod.heat_by_prot, ext_mod.heat_rich_prot, ext_mod.rich_heatXprot, ext_mod.expect_mu, ext_mod.averaged_mu, ext_mod.exptmu_prot, ext_mod.avemu_prot, extinct_forplot, ext_mod.exptmu_prot_resist, ext_mod.exptmuXprot, ext_mod.heatXexptmu_prot, ext_mod.heatXprot_exptmu, ext_mod.heatXprotXexptmu)
 ```
 
 # Shannon diversity
