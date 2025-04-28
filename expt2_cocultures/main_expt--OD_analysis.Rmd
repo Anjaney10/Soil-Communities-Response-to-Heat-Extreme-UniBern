@@ -201,13 +201,13 @@ Everything looks as good as can be expected :)
 ## Identify extinct & contaminated wells
 
 I will use the OD data to confirm that wells have gone extinct. Try out two definitions of
-extinction:
+extinction (and, for well-blanks, this cut-off will determine the contamination threshold):
 
 1.  Max baseline-subtracted OD on heat day 3 \> Mean baseline-subtracted OD after 20h of recovery day 2
 
 2.  Max baseline-subtracted OD across all uncontaminated true negative wells \> Max baseline-subtracted OD on recovery day 2
     
-I compared the results (below) and found that the second option works better. I will use this.
+I compared the results (below) and found that the second option works better. I will use this cutoff to identify extinction events for non-blank wells and identify contamination events for blank wells.
 
 ```{r, extinctWells}
 ########
@@ -261,11 +261,27 @@ latest_time <- latest_time %>% filter(Time.hrs > 22) %>%
                     filter(finalOD > growth_cutoff) %>% arrange(-Day) # largest Day will be at the top!!!
 latest_time <- latest_time[!duplicated(latest_time$uniqID),] # the first instance corresponds with the very last time
 
+# plot the samples that went extinct
+ext_plot <- the.data %>% filter(uniqID %in% latest_time$uniqID)
+ext_plot$uniqID <- factor(ext_plot$uniqID)
+  # re-order to levels to better distinguish the 2 samples at 24hrs
+ext_plot$uniqID <- factor(ext_plot$uniqID,
+                          levels=c(levels(ext_plot$uniqID)[1:9], levels(ext_plot$uniqID)[19], levels(ext_plot$uniqID)[10:18]))
+  # plot
+ggplot(ext_plot,
+       aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=uniqID)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_line(alpha=0.6) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  labs(title = "extinct wells (uniqID colours)") +
+  theme(legend.position="none")
+
+
 # print out the extinct wells to file so that they can be used in analyze_temp_serial_transfer_expt--28Oct24.Rmd
 write.csv(latest_time %>% select(uniqID, Day),
           file="./intermediate_data/extinctOD_wells.csv", quote=FALSE, row.names=FALSE)
 
-rm(tmpData, cutoff1, cutoff2, extinct_c1, extinct_c2, latest_time)
+rm(tmpData, cutoff1, cutoff2, extinct_c1, extinct_c2, latest_time, ext_plot)
 ```
 
 Use the contaminated blank wells to estimate the rate of contamination across Dates (aka inoculum batches), unique Plates, and Days.
@@ -303,6 +319,19 @@ ggplot(contaminated.blanks,
   geom_point(alpha=0.5, size=0.1) +
   scale_x_continuous(breaks=c(0,10,20)) +
   labs(title = "contaminated blank wells", colour="above threshold?")
+
+
+
+# make a plot to show that the growth cutoff is reasonable for identifying contaminated blanks
+ggplot(rbind(cbind(the.data, detectTime=FALSE), contaminated.blanks) %>% filter(CommRich == 0),
+              aes(x=Time.hrs, y=baselinedOD, group=uniqCurve, colour=detectTime)) +
+  facet_grid(rows=vars(Heat), cols=vars(Day)) +
+  geom_point(alpha=0.5, size=0.1) +
+  scale_x_continuous(breaks=c(0,10,20)) +
+  labs(title = "all blank wells", colour="above threshold?") +
+  guides(colour = guide_legend(override.aes = list(size=2)))
+
+
 
 # get the earliest time when contamination could be detected,
 earliest_time <- contaminated.blanks %>% filter(detectTime==TRUE) %>% group_by(uniqID, Day) %>%
