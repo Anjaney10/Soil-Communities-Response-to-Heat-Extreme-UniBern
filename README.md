@@ -4,7 +4,7 @@
 
 ## Title:
 
-Longer heat pulses disrupt bacterial communities by decoupling resistance from recovery.
+Long exposure to extreme heat magnifies the decoupling between bacterial resistance and recovery.
 
 ## Abstract:
 
@@ -12,9 +12,15 @@ Abstract coming soon.
 
 # 2. Project description
 
-This GitHub repository was created to facilitate the reproducibility of the scientific article listed above. As this article may currently be under double annonymous peer review, we have not yet included the pre-print link here.
+This GitHub repository was created to facilitate the reproducibility of the scientific article listed above.
 
+<<<<<<< HEAD
 The complete protocols, data, and analysis for the manuscript can be found here. The raw flow cytometry data for each of the 5 heat pulse durations can be found at these anonymous review links: https://figshare.com/s/d81c927071951ba776e7, https://figshare.com/s/4fbdd4550e7a16752044, https://figshare.com/s/183d7cb990b1e2ab76a8, https://figshare.com/s/cb37922b5ebabc628642, and https://figshare.com/s/fd044109578f5c582c81
+=======
+The pre-print manuscript will be available ... shortly.
+
+The complete protocols, data, and analysis for the manuscript can be found here. The raw flow cytometry data can be found at ???this_link??? ... available shortly.
+>>>>>>> parent of 02c8527 (updated readme for DAPR)
 
 # 3. File structure
 
@@ -26,13 +32,12 @@ The main folder for Experiment I is called "expt1_traits". The finalized analysi
 
 ## Experiment II
 
+[ZACH: please update the paragraph(s) below as appropriate to describe your code and data]
 The main folder for Experiment II is called "expt2_cocultures". The finalized analyses are found in 2 R Notebooks called "main_expt--flow_cytometry_analysis" and "main_expt--OD_analysis". The raw data is found in the subfolder "./raw_data", intermediate data produced by the R Notebooks is in the subfolder "./intermediate_data", and png figures for Figures 3-5 of the main text are produced by the R Notebooks into the subfolder "./figures".
 
 The 2 R Notebooks files with the prefix "main_expt--" are dependent on one another because they each create csv or RData files with intermediate data that is used by the other (e.g., indicating well annotation, extinction, and contamination). This is slightly annoying when running each of those scripts independently as you will need to run "main_expt--flow_cytometry_analysis.Rmd" first (it will run about 1/4 of the way before failing), then run "main_expt--OD_analysis.Rmd" (this will run completely without any issues), and finally you will be able to run "main_expt--flow_cytometry_analysis.Rmd" without any issues. But, if you simply download the entire git repository, you should be fine.
 
 The subfolder "./raw_data" contains several subsubfolders that are prefixed with "serial_transf--" followed by a date (i.e., corresponding to the starting date of that experiment). This is the data for the serial transfer experiment: csv files with the flow cytometry cell counts from FCS Express, xlsx files with the flow cytometry well volume from Attune, and txt files with the OD data.
-
-Note that the data and analysis of the supernatant experiments is not (yet?) available.
 
 ## Writing folder
 
@@ -40,4 +45,6 @@ Finally, there is a main folder called "writing". Here you can find docx files f
 
 # 4. Credits for repository
 
-[Temporarily removed for peer review]
+For Experiment I: the growth curve protocol was co-written by Anjaney Pandey (AP) & Ana-Hermina Ghenu (AHG), the growth curve data was gathered by AP as supervised by AHG, the growth curve data was analyzed by AHG with input from AP. The CFU protocol, data, and analysis was done by AHG.
+
+For Experiment II: the serial transfer protocol and data was done by AHG with help from Anine Wyser, and then analyzed by AHG. The protocol, data, and analysis of the spent media experiments was done by Zachary Bailey. 
