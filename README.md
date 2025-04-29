@@ -15,12 +15,16 @@ Abstract coming soon.
 This GitHub repository was created to facilitate the reproducibility of the scientific article listed above.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 The complete protocols, data, and analysis for the manuscript can be found here. The raw flow cytometry data for each of the 5 heat pulse durations can be found at these anonymous review links: https://figshare.com/s/d81c927071951ba776e7, https://figshare.com/s/4fbdd4550e7a16752044, https://figshare.com/s/183d7cb990b1e2ab76a8, https://figshare.com/s/cb37922b5ebabc628642, and https://figshare.com/s/fd044109578f5c582c81
 =======
 The pre-print manuscript will be available ... shortly.
 
 The complete protocols, data, and analysis for the manuscript can be found here. The raw flow cytometry data can be found at ???this_link??? ... available shortly.
 >>>>>>> parent of 02c8527 (updated readme for DAPR)
+=======
+The complete protocols, data, and analysis for the manuscript can be found here. The raw flow cytometry data for each of the 5 heat pulse durations can be found at these anonymous review links: https://figshare.com/s/d81c927071951ba776e7, https://figshare.com/s/4fbdd4550e7a16752044, https://figshare.com/s/183d7cb990b1e2ab76a8, https://figshare.com/s/cb37922b5ebabc628642,https://figshare.com/s/fd044109578f5c582c81
+>>>>>>> parent of 05e2079 (typo)
 
 # 3. File structure
 
