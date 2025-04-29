@@ -18,13 +18,18 @@ editor_options:
 
 # Introduction
 
-This document is updated from `analyze_temp_serial_transfer_expt--28Oct24.Rmd`.
+This notebook is for analyzing the time series flow cytometry data produced by Ana-Hermina Ghenu (with help from Anine Wyser) while working as a postdoc in the lab of Maddy Thakur at University of Bern.
+This notebook summarizes the findings for publication. This document is updated from `analyze_temp_serial_transfer_expt--28Oct24.Rmd`. 
 
-There are 5 treatments: no heat (5 days serial transfer), 6h heat, 12h heat, 24h heat, and
-48h heat. Each of these is setup with 5 technical replicates that was initially inoculated
-to about equal ratios (on Day 0).
+The goal is to understand how 15 different communities change during (resistance) and after (recovery) a heat pulse of different duration as compared to no heat pulse. There are 5 treatments: no heat (5 days serial transfer), 6h heat, 12h heat, 24h heat, and 48h heat. Each of these is setup with 5 technical replicates that was initially inoculated to about equal ratios (on Day 0).
 
-Summary of choices: Based on the number of cells observed in true blank wells, I only
+The main questions the experiments are trying to answer: does inoculated community richness protect communities from heat? can we predict community composition based on monoculture traits of each of the 4 species? what is the relationship between resistance and recovery, and (how) does this change with heat pulse duration?
+
+See the associated manuscript for more details. This notebook covers analysis of flow cytometry data as part of Experiment II in the manuscript. It needs to be run with `main_expt--OD_analysis.Rmd` because it relies on the OD data to confirm community extinction events.
+
+
+## Summary of choices:
+Based on the number of cells observed in true blank wells, I only
 include data from wells with \>50 cells. Based on the flow cytometry data from Day 0 (which is estimated from the blanks in the OD data to have never experienced any contamination events), a
 misclassification rate of 1% is assumed. Contaminated replicates are
 defined as having a substantially higher % of a species that was not inoculated in that well (i.e., than expected from this misclassification rate). When a contaminated well was detected, all time points associated with that well were removed from the data.
