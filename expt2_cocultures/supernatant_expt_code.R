@@ -16,7 +16,7 @@ library("ggtext") # For italicized species names
 # Set working directory
 setwd("path/to/file/")
 # Import data
-data <- read.csv("Fig3_C_data.csv")
+data <- read.csv("supernatant_expt_data.csv")
 #### Making the Palette for our plots
 # define a palette for plotting the 4 species
 species_4pal_alphabetical = palette.colors(8, palette = "R4")[c(3, 5, 7, 2)] #in alphabetical order: grimontii, protegens, putida, veronii
