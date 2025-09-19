@@ -33,7 +33,7 @@ The 2 R Notebooks files with the prefix "main_expt--" are dependent on one anoth
 
 The subfolder "./raw_data" contains several subsubfolders that are prefixed with "serial_transf--" followed by a date (i.e., corresponding to the starting date of that experiment). This is the data for the serial transfer experiment: csv files with the flow cytometry cell counts from FCS Express, xlsx files with the flow cytometry well volume from Attune, and txt files with the OD data.
 
-As yet, the protocol, data, and analysis of the spent media experiments performed by Zachary Bailey are not available here (yet?).
+The raw data and analysis of the supernatant (i.e., spent media) experiments are also found in the "expt2_cocultures" folder. The R script is called "supernatant_expt_code.R" and its associated raw data is in the subfolder "./raw_data" in the file called "supernatant_expt_data.csv".
 
 ## Writing folder
 
@@ -43,4 +43,4 @@ Finally, there is a main folder called "writing". Here you can find docx files f
 
 For Experiment I: the growth curve protocol was co-written by Anjaney Pandey (AP) & Ana-Hermina Ghenu (AHG), the growth curve data was gathered by AP as supervised by AHG, the growth curve data was analyzed by AHG with input from AP. The CFU protocol, data, and analysis was done by AHG.
 
-For Experiment II: the serial transfer protocol and data was done by AHG with help from Anine Wyser, and then analyzed by AHG.
+For Experiment II: the serial transfer protocol and data was done by AHG with help from Anine Wyser, and then analyzed by AHG. The supernatant experiments were performed and analyzed by Zachary Michael Bailey (ZMB).
