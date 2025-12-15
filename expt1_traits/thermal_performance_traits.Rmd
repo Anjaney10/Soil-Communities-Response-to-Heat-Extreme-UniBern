@@ -1907,6 +1907,23 @@ ggplot(temp_data_for_plotting,
   geom_line(alpha=0.5) +
   labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)", title="P. grimontii")
 
+#########################
+# finally, plot P. putida
+#########################
+
+# P. putida grew well at 40C
+# so we plot the data as included in the TTD calculation
+temp_data_for_plotting <-   smoothed_ALL.df %>% 
+                                  filter(Species == "P. putida",
+                                         !is.na(TTD_0.05))
+ggplot(temp_data_for_plotting,
+       aes(y = smth_baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
+  facet_wrap(vars(Temp)) +
+  scale_y_log10(limits=c(0.005,1.5)) +
+  geom_line(alpha=0.5) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)", title="P. putida")
+
+
 # clean up
 rm(temp_data_for_plotting, temp, these_grew)
 ```
