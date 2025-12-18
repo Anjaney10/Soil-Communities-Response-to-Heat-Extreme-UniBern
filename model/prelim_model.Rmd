@@ -1,0 +1,81 @@
+---
+title: "Modeling thermal trade-offs versus trade-ups in a Resistance-vs-Recovery framework"
+author: "Hermina"
+Date: "2025-02-05"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float:
+      smooth_scroll: false
+  pdf_document:
+    toc: true
+---
+
+# Motivation
+
+As summarized in the introduction of [Logan et al., 2019](https://onlinelibrary.wiley.com/doi/full/10.1111/evo.13862), there's 2 main hypotheses for thermal performance: thermodynamic effect (hereafter called "hotter is better") and specialist-generalist trade-off. The 2 are not mutually exclusive. Both hypotheses describe how the full thermal performance curve of 2 (or more) species are related.
+
+In our experiment, we are **not** interested in the full thermal performance curve. We're only interested in what happens at the very extreme end of temperature. So we can summarize the effect of interest under the two hypotheses in the following figure:
+
+```{r, trade_schematic}
+####################################
+# Define points for Trade-Ups plot:
+x <- c(1, 2)
+
+# Line 1 points
+y1 <- c(2, 1)
+
+# Line 2 points
+y2 <- c(3, 2)
+
+# Create empty plot with custom x-axis labels
+plot(x, y1, type = "n", xaxt = "n", ylim = c(0, 4), yaxt = "n",
+     xlab = "Temperature", ylab = "Growth rate", main="Trade-ups (hotter is better)")
+
+# Add custom x-axis labels
+axis(1, at = c(1, 2), labels = c("Ambient", "Extreme"))
+
+# Draw the two lines
+lines(x, y1, col="deepskyblue", lwd = 2)
+lines(x, y2, col="coral", lwd = 2)
+
+####################################
+# Define points for Trade-Offs plot:
+x <- c(1, 2)
+
+# Line 1 points
+y1 <- c(2.5, 2)
+
+# Line 2 points
+y2 <- c(3.5, 1)
+
+# Create empty plot with custom x-axis labels
+plot(x, y1, type = "n", xaxt = "n", ylim = c(0, 4), yaxt = "n",
+     xlab = "Temperature", ylab = "Growth rate", main="Trade-offs")
+
+# Add custom x-axis labels
+axis(1, at = c(1, 2), labels = c("Ambient", "Extreme"))
+
+# Draw the two lines
+lines(x, y1, col="deepskyblue", lwd = 2)
+lines(x, y2, col="coral", lwd = 2)
+
+rm(x, y1, y2)
+```
+
+The question is: how do these 2 different hypotheses map onto Maddy's Resistance-Recovery framework? And what do we expect to see under each of these hypotheses as we increase the duration of the heat pulse event? My intuition is that when there are trade-ups (i.e., hotter is better hypothesis) then recovery $>$ resistance (i.e., decoupling will be *above* the line where resistance = recovery, "coupling") but that when there are trade-offs then recovery $<$ resistance (i.e., decoupling will be *below* the line where resistance = recovery, "coupling").
+
+# The Model
+
+I think it is sufficient to consider a model of Logistic growth with multiple species $i$, where each species has population size $n_i$: $\frac{1}{n_i} \frac{dn_i}{dt} = \mu_i(T)(1-\frac{\Sigma n_i}{K})$.
+
+Growth rate is an explicit function of temperature ($\mu_i(T)$) but as we have a pulse perturbation, we're actually only interested in two growth rates for each species: that at ambient temperature and at the extreme temperature. The ambient growth rates we have already measured so that's fine. The trouble is that the growth rates are negative for extreme temperatures but we cannot measure death... Anyway we can still eye-ball things.
+
+Finally, we assume that carrying capacity is temperature and species independent. We can estimate the carrying capacity from the control treatment because the temperature stays constant at its ambient value.
+
+For starters, we have just 2 species in the community.
+
+## Building the model
+
