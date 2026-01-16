@@ -13,6 +13,12 @@ output:
     toc: true
 ---
 
+```{r, load_env}
+library(deSolve) # for solving ordinary differential equations
+library(vegan) # to estimate diversity
+library(tidyverse) # for everything
+```
+
 # Motivation
 
 As summarized in the introduction of [Logan et al., 2019](https://onlinelibrary.wiley.com/doi/full/10.1111/evo.13862), there's 2 main hypotheses for thermal performance: thermodynamic effect (hereafter called "hotter is better") and specialist-generalist trade-off. The 2 are not mutually exclusive. Both hypotheses describe how the full thermal performance curve of 2 (or more) species are related.
@@ -20,29 +26,29 @@ As summarized in the introduction of [Logan et al., 2019](https://onlinelibrary.
 In our experiment, we are **not** interested in the full thermal performance curve. We're only interested in what happens at the very extreme end of temperature. So we can summarize the effect of interest under a null hypothesis ("coupling") and two alternative "decoupling" hypotheses in the following figure:
 
 ```{r, trade_schematic}
-plot_muSchematic <- function(mu1_ambient, mu1_extreme, mu2_ambient, mu2_extreme,
+plot_muSchematic <- function(fast_ambient, fast_extreme, slo_ambient, slo_extreme,
                              plot_title){
-  plot(x=1:2, y=c(mu1_ambient, mu1_extreme),
+  plot(x=1:2, y=c(fast_ambient, fast_extreme),
        type = "n", xaxt = "n", ylim = c(-1, 2), yaxt = "n",
        xlab = "Temperature", ylab = "Growth rate", main=plot_title)
   # Add custom x-axis labels
   axis(1, at = c(1, 2), labels = c("Ambient", "Extreme"))
   # Draw the two lines
-  lines(x=1:2, y=c(mu1_ambient, mu1_extreme), col="deepskyblue", lwd = 2)
-  lines(x=1:2, y=c(mu2_ambient, mu2_extreme), col="coral", lwd = 2)
+  lines(x=1:2, y=c(fast_ambient, fast_extreme), col="coral", lwd = 2)
+  lines(x=1:2, y=c(slo_ambient, slo_extreme), col="darkturquoise", lwd = 2)
 }
 
 
 # make plot for no effect:
-plot_muSchematic(mu1_ambient = 0.5, mu1_extreme = -0.5, mu2_ambient = 1.5, mu2_extreme = 0.5,
+plot_muSchematic(slo_ambient = 0.5, slo_extreme = -0.5, fast_ambient = 1.5, fast_extreme = 0.5,
                  plot_title = "Null hypothesis: predict coupling of resistance & recovery")
 
 # make plot for Trade-Ups:
-plot_muSchematic(mu1_ambient = 1.3, mu1_extreme = -0.5, mu2_ambient = 1.5, mu2_extreme = 1,
+plot_muSchematic(slo_ambient = 1.3, slo_extreme = -0.5, fast_ambient = 1.5, fast_extreme = 1,
                  plot_title = "Trade-ups (hotter is better): predict + decoupling")
 
 # make plot for Trade-Offs:
-plot_muSchematic(mu1_ambient = 0.75, mu1_extreme = 0.25, mu2_ambient = 1.75, mu2_extreme = -0.75,
+plot_muSchematic(slo_ambient = 0.75, slo_extreme = 0.25, fast_ambient = 1.75, fast_extreme = -0.75,
                  plot_title = "Trade-offs: predict - decoupling")
 ```
 
@@ -67,12 +73,12 @@ For starters, we have just 2 species in the community.
 
 19 Dec Notes: I think it's worthwhile to simplify the model even further (for now) by considering only exponential growth. That's because we have no antagonistic interactions in the model, it's just competition on density-dependent growth rate. So we can get an idea of how the batch culture results will look like by simulating less time for exponential growth. Then I can more quickly test if my intuition about resistance/recovery make sense before I bother to specify the batch culture model.
 
+16 Jan Notes: Actually I don't think it will work properly without a carrying capacity.
+Also: it might be nice to make a little shiny of the simple model just to play around.
+
 ## Building the model
 
 ```{r, define_model}
-library(deSolve) # for solving ordinary differential equations
-library(tidyverse) # for everything
-
 # define the set of ordinary differential equations
 ODE_2sp <- function(time, init, params){
   with (as.list(c(time, init, params)), {
@@ -128,24 +134,115 @@ sim_serialTransf <- function(trmt) {
 }
 
 
-
+# a function to get the effect size
+heatVScontrol_effect <- function(simdata_heat, # output from sim_pulse
+                                 simdata_control # output from sim_1temp for corresponding no-heat control
+                                 ) {
+  # initialize the data.frame for output
+  out_df <- simdata_heat
+  
+  # get the effect size for each of the 2 species population sizes
+  out_df$N1 <- simdata_heat$N1 - simdata_control$N1
+  out_df$N2 <- simdata_heat$N2 - simdata_control$N2
+  
+  # get the effect size on total productivity
+  out_df$productivity <- out_df$N1 + out_df$N2
+  
+  # get the effect size on Shannon diversity
+  div_heat <- diversity(simdata_heat[,-1], index = "shannon")
+  div_control <- diversity(simdata_control[,-1], index = "shannon")
+  out_df$diversity <- div_heat - div_control
+  
+  return(out_df)
+}
 
 ##################################################
 
-plot_muSchematic(mu1_ambient = 0.76, mu1_extreme = 0.7, mu2_ambient = 0.97, mu2_extreme = 0.6,
-                 plot_title = "example")
-
 # let's try out an example
 State <- c(N1=0.001, N2=0.001)
+heat_pulse_times <- c(5,18,30)
+carrying_cap <- 10^6
+sp1_ambient <- 0.97
+sp1_extreme <- 0.46
+sp2_ambient <- 0.76
+sp2_extreme <- 0.7
 
-# let's plot the example
-simex <- sim_pulse(times=c(5,18,24), init=State, K=10^6,
-                   mu_ambient=c(mu1=0.76, mu2=0.97), mu_extreme=c(mu1=0.7, mu2=0.6)) %>%
-          pivot_longer(cols = N1:N2)
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "Trade-off example")
 
-ggplot(simex, aes(x=time, y=value, colour=name)) +
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
   geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
   scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+################ finally, we can plot resistance vs recovery
+temp_df <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])])
+
+ggplot(temp_df, aes(x = prod_resist, y = prod_recov)) +
+  geom_point(color = "blue") +
+  geom_abline(intercept = 0, slope = 1, color = "black") +
+  xlim(c(temp_df$prod_resist, temp_df$prod_recov)) +
+  ylim(c(temp_df$prod_resist, temp_df$prod_recov)) +
+  labs(title = "Effect on total Productivity", x="Resistance", y="Recovery")
+
+
+
+temp_df <- data.frame(div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])])
+
+ggplot(temp_df, aes(x = div_resist, y = div_recov)) +
+  geom_point(color = "blue") +
+  geom_abline(intercept = 0, slope = 1, color = "black") +
+  xlim(c(temp_df$div_resist, temp_df$div_recov)) +
+  ylim(c(temp_df$div_resist, temp_df$div_recov)) +
+  labs(title = "Effect on Shannon diversity", x="Resistance", y="Recovery")
 ```
 
+# Analysis
 
+Great! Now we can analyze what happens under the 3 scenarios: null hypothesis, trade-ups, trade-offs. We keep the timings of the heat pulse and the ambient growth rates constant. And we see what happens as the growth rates under extreme heat are changed. In particular, we can just focus on what happens as `sp2_extreme` changes.
