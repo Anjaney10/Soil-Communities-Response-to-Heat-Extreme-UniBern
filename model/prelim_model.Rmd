@@ -1709,12 +1709,721 @@ ggplot(RR_df %>% filter(hypoth == "H0: same distance"),
 
 In general, our prediction of having coupling between resistance & recovery under the null hypothesis is **not** borne out.
 
-For total productivity, there is *usually decoupling that falls below* the $y=x$ line (so-called "negative decoupling"). This does not seem to matter much on the difference in growth rates between the fast and slow species. Instead it depends on the growth rate of the fast species (or, equivalently, on the duration of the heat pulse): if this is fast enough to get to carrying capacity then the **decoupling can be above** the $y=x$ line.
+For **Total Productivity**, there is *usually decoupling that falls below* the $y=x$ line. What this means is that the heat pulse prevents everyone from growing as much as they would otherwise in the absence of a pulse, both at the peak of the heat pulse (when we measure resistance) and even some time after the heat pulse has ended (when we measure recovery) the community's total productivity hasn't yet had time to catch up.
 
-For diversity, there is also *often decoupling that falls below* the $y=x$ line (so-called "negative decoupling"). This depends principally on the difference in growth rates between the fast and slow species: there is greater decoupling when there is a small difference between fast and slow. When the fast species is much faster than the slow species, that's when you can observe coupling because the fast one out-competes the slow one regardless of the heat pulse.
+The productivity "decoupling" below the $y=x$ line does not seem to matter much on the difference in growth rates between the fast and slow species. Instead it depends on the growth rate of the fast species (or, equivalently, on the duration of the heat pulse): if this is fast enough to get to carrying capacity then the **decoupling can be above** the $y=x$ line.
+
+For **Diversity**, there is also *often decoupling that falls below* the $y=x$ line. What it means is that, in general, the heat pulse accentuates the growth advantage of the fast growing species so it can more quickly out-compete the slower one, thus depressing the diversity as compared to no-heat control. This already begins by the end of the resistance phase and, because the slow species is always slower, the diversity only goes down further by the end of recovery. This "decoupling" depends principally on the difference in growth rates between the fast and slow species: there is greater decoupling when there is a small difference between fast and slow.  When the fast species is much faster than the slow species, that's when you can observe "coupling" (i.e., the point falls on the $y=x$ line) because the fast one has already completely crashed all diversity by the resistance phase and things stay the same at the end of the recovery. I would say that this "coupling" effect is relatively trivial because it's just that diversity gets totally crashed.
+
+The explanation above applies primarily to the "same distance" H0, something slightly different is happening for the "same ratio" H0. Here the advantage of the fast grower is actually *decreased* during the heat pulse. That's what allows diversity to go up during the heat pulse... except that for some reason it usually goes back down by the end of the heat pulse (when we measure recovery). Anyway, I expect to see more of this diversity-increasing effect of the heat pulse when we look at the trade-off hypothesis.
+
+
 
 ## Trade-ups
 
+```{r, tradeups}
+# keep all of these parameter values fixed:
+State <- c(N1=0.001, N2=0.001)
+heat_pulse_times <- c(5,18,30)
+carrying_cap <- 10^6
+sp1_ambient <- 0.97
+sp1_extreme <- 0.46
+sp2_ambient <- 0.76
+
+# just modify this parameter value:
+sp2_extreme <- 0.19
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-ups")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-ups")
+# keep the 1st row of the H0 results for comparison
+RR_df <- rbind(RR_df[1,], temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+
+##################################### Try again with larger trade-up (but still positive growth for slow grower):
+sp2_extreme <- 0.019
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-ups")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-ups")
+RR_df <- rbind(RR_df, temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+
+##################################### slightly larger trade-up but now with negative growth for the slow grower
+sp2_extreme <- -0.019
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-ups")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-ups")
+RR_df <- rbind(RR_df, temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+##################################### the last one is near where we might expect the slow grower to go extinct (if that was possible in our model)
+sp2_extreme <- -0.19
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-ups")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-ups")
+RR_df <- rbind(RR_df, temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+##################### Finally we plot resistance vs recovery
+ggplot(RR_df,
+       aes(x = prod_resist, y = prod_recov, colour = spS_extreme)) +
+  geom_point(alpha=0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "black") +
+  xlim(range(unlist(RR_df[,1:2]))) +
+  ylim(range(unlist(RR_df[,1:2]))) +
+  labs(title = "Effect on total Productivity: trade-ups", x="Resistance", y="Recovery")
+
+ggplot(RR_df,
+       aes(x = div_resist, y = div_recov, colour = spS_extreme)) +
+  geom_point(alpha=0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "black") +
+  xlim(range(unlist(RR_df[,3:4]))) +
+  ylim(range(unlist(RR_df[,3:4]))) +
+  labs(title = "Effect on Shannon Diversity: trade-ups", x="Resistance", y="Recovery")
+
+```
+
+**Summary:**
+There's no impact of trade-ups on total productivity. This makes sense with what we already learned from the null model: the extent of "decoupling" for total productivity depends on the growth rate of the fastest growing species.
+
+For diversity, a larger trade-up pushes the resistance effect to larger negative values (i.e., towards the left), which makes sense because the heat pulse accentuates the advantage of the fast grower. If the trade-up is large enough, then it's possible for the "decoupling" to be above the $y=x$ line because it's during the recovery phase that the slow grower is able to catch up on the fast grower, therefore leading to relatively more diversity during recovery than during resistance. Note that this is somehow in line with the trivial "coupling" at (0,0) observed when there's a big difference between the fast and slow grower under the null hypothesis.
 
 ## Trade-offs
+
+```{r, tradeoffs}
+# keep all of these parameter values fixed:
+State <- c(N1=0.001, N2=0.001)
+heat_pulse_times <- c(5,18,30)
+carrying_cap <- 10^6
+sp1_ambient <- 0.97
+sp1_extreme <- 0.46
+sp2_ambient <- 0.76
+
+# just modify this parameter value:
+sp2_extreme <- 0.47
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-offs")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-offs")
+# keep the 1st row of the H0 results for comparison
+RR_df <- rbind(RR_df[1,], temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+
+##################################### Try again with larger trade-off:
+sp2_extreme <- 0.61
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-offs")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-offs")
+RR_df <- rbind(RR_df, temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+
+##################################### (near) the largest possible trade-off where the growth rate for both species is still faster under ambient than it is under the extreme temperature
+sp2_extreme <- 0.75
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-offs")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-offs")
+RR_df <- rbind(RR_df, temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+##################################### "slow" species has faster growth rate during extreme heat than during ambient (but fast ambient is the fastest overall growth rate)
+sp2_extreme <- 0.83
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-offs")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-offs")
+RR_df <- rbind(RR_df, temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+
+##################################### last one both species are temperature niche specialists: each grows faster than the other at their temperature niche
+sp2_extreme <- 0.98
+
+plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
+                 slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
+                 plot_title = "H_alt: trade-offs")
+
+# simulate the community with heat pulse
+simEX <- sim_pulse(times=heat_pulse_times, init=State, K=carrying_cap,
+                   mu_ambient=c(mu1=sp1_ambient, mu2=sp2_ambient), mu_extreme=c(mu1=sp1_extreme, mu2=sp2_extreme))
+
+# plot the example under heat pulse conditions
+ggplot(pivot_longer(simEX, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Heat pulse from 5 to 18 time units", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+# simulate the community WITHOUT heat pulse (i.e., no heat control)
+simCTRL <- sim_1temp(time = 0:heat_pulse_times[3],
+                   init = State,
+                   params = c(K=carrying_cap, mu1=sp1_ambient, mu2=sp2_ambient))
+# plot the no heat control:
+ggplot(pivot_longer(simCTRL, cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "No heat pulse", y="Population size", colour = "Species") +
+  scale_y_log10()
+
+
+################ let's look at the effect size in different ways:
+effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
+
+# plot per species
+ggplot(effects_df %>%
+         select(time, N1, N2) %>% pivot_longer(cols = N1:N2),
+       aes(x=time, y=value, colour=name)) +
+  geom_line() +
+  labs(title = "Effect size on each species (pulse - control)", y="Change in population size", colour = "Species")
+
+# total productivity
+ggplot(effects_df %>%
+         select(time, productivity),
+       aes(x=time, y=productivity)) +
+  geom_line() +
+  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+
+# Shannon diversity
+ggplot(effects_df %>%
+         select(time, diversity),
+       aes(x=time, y=diversity)) +
+  geom_line() +
+  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+
+
+# finally, we store the resistance vs recovery values for both productivity and diversity
+temp <- data.frame(prod_resist = effects_df$productivity[which(effects_df$time == heat_pulse_times[2])],
+                    prod_recov = effects_df$productivity[which(effects_df$time == heat_pulse_times[3])],
+                    div_resist = effects_df$diversity[which(effects_df$time == heat_pulse_times[2])],
+                    div_recov = effects_df$diversity[which(effects_df$time == heat_pulse_times[3])],
+                    spF_ambient = sp1_ambient,
+                    spF_extreme = sp1_extreme,
+                    spS_ambient = sp2_ambient,
+                    spS_extreme = sp2_extreme,
+                    hypoth = "H_alt: trade-offs")
+RR_df <- rbind(RR_df, temp)
+rm(temp)
+# clear memory
+rm(simEX, simCTRL, effects_df)
+
+##################### Finally we plot resistance vs recovery
+ggplot(RR_df,
+       aes(x = prod_resist, y = prod_recov, colour = spS_extreme)) +
+  geom_point(alpha=0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "black") +
+  xlim(range(unlist(RR_df[,1:2]))) +
+  ylim(range(unlist(RR_df[,1:2]))) +
+  labs(title = "Effect on total Productivity: trade-offs", x="Resistance", y="Recovery")
+
+ggplot(RR_df,
+       aes(x = div_resist, y = div_recov, colour = spS_extreme)) +
+  geom_point(alpha=0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "black") +
+  xlim(range(unlist(RR_df[,3:4]))) +
+  ylim(range(unlist(RR_df[,3:4]))) +
+  labs(title = "Effect on Shannon Diversity: trade-offs", x="Resistance", y="Recovery")
+
+```
+
+**Summary:**
+
+For **Total Productivity**, I think recovery is going up because it seems that my initial observation from the null hypothesis analysis that total productivity during recovery increases only with the fastest grower was too simplistic. It seems that in general the entire community's (mean? median? smth else?) growth rate is what's important for it to be able to make a full recovery. For the data-point with the largest growth rate of spS_extreme, the resistance moves to the right because spS_extreme is actually the fastest growth rate overall. So the "slow grower" gains more biomass during the heat pulse than it does during ambient temperature, while the "fast grower" is gaining less biomass and there's more of it so there's still overall a net negative effect of the heat pulse during resistance but it's less negative than for the other parameter values. So basically my whole intuition explained in the paper that trade-ups should lead to decoupling above the $y=x$ line while trade-offs would lead to decoupling below the $y=x$ line is bunk. And in fact "decoupling" appears to be the rule as compared to the exception; "coupling" is the one that's more unusual.
+
+For **Diversity**, there's all kinds of stuff going on... which makes it pretty clear that "coupling" or "decoupling" are not robust read-outs of any mechanism.
 
