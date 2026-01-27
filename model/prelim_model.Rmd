@@ -23,7 +23,7 @@ library(tidyverse) # for everything
 
 As summarized in the introduction of [Logan et al., 2019](https://onlinelibrary.wiley.com/doi/full/10.1111/evo.13862), there's 2 main hypotheses for thermal performance: thermodynamic effect (hereafter called "hotter is better") and specialist-generalist trade-off. The 2 are not mutually exclusive. Both hypotheses describe how the full thermal performance curve of 2 (or more) species are related.
 
-In our experiment, we are **not** interested in the full thermal performance curve. We're only interested in what happens at the very extreme end of temperature. So we can summarize the effect of interest under a null hypothesis ("coupling") and two alternative "decoupling" hypotheses in the following figure:
+In our experiment, we are **not** interested in the full thermal performance curve. We're only interested in what happens at the very extreme end of temperature. So we can summarize the effect of interest under a null hypothesis and two alternative hypotheses in the following schematics:
 
 ```{r, trade_schematic}
 plot_muSchematic <- function(fast_ambient, fast_extreme, slo_ambient, slo_extreme,
@@ -41,24 +41,22 @@ plot_muSchematic <- function(fast_ambient, fast_extreme, slo_ambient, slo_extrem
 
 # make plot for no effect:
 plot_muSchematic(slo_ambient = 0.5, slo_extreme = -0.5, fast_ambient = 1.5, fast_extreme = 0.5,
-                 plot_title = "Null hypothesis: predict coupling of resistance & recovery")
+                 plot_title = "Null hypothesis:")
 
 # make plot for Trade-Ups:
 plot_muSchematic(slo_ambient = 1.3, slo_extreme = -0.5, fast_ambient = 1.5, fast_extreme = 1,
-                 plot_title = "Trade-ups (hotter is better): predict + decoupling")
+                 plot_title = "Trade-ups (hotter is better):")
 
 # make plot for Trade-Offs:
 plot_muSchematic(slo_ambient = 0.75, slo_extreme = 0.25, fast_ambient = 1.75, fast_extreme = -0.75,
-                 plot_title = "Trade-offs: predict - decoupling")
+                 plot_title = "Trade-offs:")
 ```
 
-The question is: how do these different hypotheses map onto Maddy's Resistance-Recovery framework? And what do we expect to see under each of these hypotheses as we increase the duration of the heat pulse event? My intuition is that:
+The question is: how do these different hypotheses map onto Maddy's Resistance-Recovery framework? And what do we expect to see under each of these hypotheses as we increase the duration of the heat pulse event?
 
-1. when the 2 lines are parallel (i.e., the null hypothesis plot above) then recovery $=$ resistance so there will be a *coupling* of these responses;
+![](Thakur2022_fig3.jpg "Figure reproduced from Thakur et al., 2022. iScience")
 
-2. when there are trade-ups (i.e., hotter is better hypothesis) then recovery $>$ resistance so there will be a "+ decoupling" of resistance from recovery that is *above* the resistance = recovery line;
 
-3. but that when there are trade-offs then recovery $<$ resistance: so there will be a "- decoupling" of resistance from recovery that is *below* the resistance = recovery line.
 
 Note that when we are talking about resistance and recovery we mean the effect size between the heat pulse treatment versus a no-heat control. More specifically, we are referring to the effect size based on differences between means (e.g., I used the emmeans function `eff_size` in my analysis of the flow cytometry data and this estimates Cohen's d, a standardized mean difference). In the toy models below, everything is fully deterministic and the population is uniform so the populations do not exhibit any variation and we're able to get the mean just from the one simulated value.
 
@@ -80,6 +78,8 @@ Note that our model does not include extinction (i.e.,the population can approac
 
 16 Jan Notes: Actually I don't think it will work properly without a carrying capacity.
 Also: it might be nice to make a little shiny of the simple model just to play around.
+
+26 Jan Notes: After analyzing the toy model, I've decided that the coupling and decoupling framework proposed by Maddy is just not useful for understanding community resilience given how we are defining the effect sizes.
 
 ## Building the model
 
@@ -167,10 +167,10 @@ heatVScontrol_effect <- function(simdata_heat, # output from sim_pulse
 State <- c(N1=0.001, N2=0.001)
 heat_pulse_times <- c(5,18,30)
 carrying_cap <- 10^6
-sp1_ambient <- 0.97
+sp1_ambient <- 0.99
 sp1_extreme <- 0.46
-sp2_ambient <- 0.76
-sp2_extreme <- 0.7
+sp2_ambient <- 0.81
+sp2_extreme <- 0.75
 
 plot_muSchematic(fast_ambient = sp1_ambient, fast_extreme = sp1_extreme,
                  slo_ambient = sp2_ambient, slo_extreme = sp2_extreme,
@@ -198,6 +198,47 @@ ggplot(pivot_longer(simCTRL, cols = N1:N2),
   labs(title = "No heat pulse", y="Population size", colour = "Species") +
   scale_y_log10()
 
+# put the 2 treatments on the same plot
+temp.df <- rbind(data.frame(pivot_longer(simEX, cols = N1:N2), trmt="heat"),
+                 data.frame(pivot_longer(simCTRL, cols = N1:N2), trmt="control"))
+ggplot(temp.df,
+       aes(x=time, y=value, group=paste(trmt, name))) +
+  geom_rect(aes(xmin=5, xmax=18, ymin=0, ymax=Inf), fill="cornsilk") +
+  geom_line(aes(linetype=trmt, colour=name)) +
+  scale_y_log10() +
+  labs(linetype="Treatment", colour="Species",
+       y="Population size") +
+  theme_classic()
+
+# put the total productivity both treatments on the same plot
+temp.df <- rbind(data.frame(simEX %>% mutate(productivity = N1+N2, .keep="unused"),
+                            trmt="heat"),
+                 data.frame(simCTRL %>% mutate(productivity = N1+N2, .keep="unused"),
+                            trmt="control"))
+ggplot(temp.df,
+       aes(x=time, y=productivity, group=trmt)) +
+  geom_rect(aes(xmin=5, xmax=18, ymin=0, ymax=Inf), fill="cornsilk") +
+  geom_line(aes(linetype=trmt)) +
+  scale_y_log10() +
+  labs(linetype="Treatment",
+       y="Total productivity") +
+  theme_classic()
+
+# finally, put the diversity both treatments on the same plot
+temp.df <- rbind(data.frame(time = simEX$time,
+                            div = diversity(simEX[,-1], index="shannon"),
+                            trmt="heat"),
+                 data.frame(time = simCTRL$time,
+                            div = diversity(simCTRL[,-1], index="shannon"),
+                            trmt="control"))
+ggplot(temp.df,
+       aes(x=time, y=div, group=trmt)) +
+  geom_rect(aes(xmin=5, xmax=18, ymin=0, ymax=Inf), fill="cornsilk") +
+  geom_line(aes(linetype=trmt)) +
+  labs(linetype="Treatment",
+       y="Shannon Diversity") +
+  theme_classic()
+rm(temp.df)
 
 ################ let's look at the effect size in different ways:
 effects_df <- heatVScontrol_effect(simdata_heat=simEX, simdata_control=simCTRL)
@@ -213,15 +254,19 @@ ggplot(effects_df %>%
 ggplot(effects_df %>%
          select(time, productivity),
        aes(x=time, y=productivity)) +
+  geom_rect(aes(xmin=5, xmax=18, ymin=-Inf, ymax=Inf), fill="cornsilk") +
   geom_line() +
-  labs(title = "Effect size on total productivity (pulse - control)", y="Change in productivity")
+  labs(title = "Effect size on total productivity (heat - control)", y="Change in productivity") +
+  theme_classic()
 
 # Shannon diversity
 ggplot(effects_df %>%
          select(time, diversity),
        aes(x=time, y=diversity)) +
+  geom_rect(aes(xmin=5, xmax=18, ymin=-Inf, ymax=Inf), fill="cornsilk") +
   geom_line() +
-  labs(title = "Effect size on Shannon diversity (pulse - control)", y="Change in diversity")
+  labs(title = "Effect size on Shannon diversity (heat - control)", y="Change in diversity") +
+  theme_classic()
 
 
 ################ finally, we can plot resistance vs recovery
@@ -729,6 +774,9 @@ ggplot(RR_df %>% filter(hypoth == "H0: same ratio"),
   xlim(range(unlist(RR_df[,3:4]))) +
   ylim(range(unlist(RR_df[,3:4]))) +
   labs(title = "Effect on Shannon Diversity: H0 same ratio", x="Resistance", y="Recovery")
+
+# create a variable for storage to plot in the summary figure
+final_RR_df <- RR_df %>% filter(hypoth == "H0: same distance")
 ```
 
 Okay so it seems that under the null hypothesis with positive values of growth rate, **productivity *cannot* be coupled.** Only diversity can be coupled when there's a sufficiently large difference in growth rate between the fast and slow growing species.
@@ -976,6 +1024,9 @@ ggplot(RR_df %>% filter(hypoth == "H0: same distance"),
   ylim(range(unlist(RR_df[,3:4]))) +
   labs(title = "Effect on Shannon Diversity: H0 same dist", x="Resistance", y="Recovery")
 
+# keep these results for the final summary plot
+final_RR_df <- rbind(final_RR_df,
+                     RR_df)
 ```
 
 
@@ -2030,6 +2081,10 @@ ggplot(RR_df,
   ylim(range(unlist(RR_df[,3:4]))) +
   labs(title = "Effect on Shannon Diversity: trade-ups", x="Resistance", y="Recovery")
 
+
+# keep these results for the final summary plot
+final_RR_df <- rbind(final_RR_df,
+                     RR_df %>% filter(hypoth == "H_alt: trade-ups"))
 ```
 
 **Summary:**
@@ -2419,6 +2474,11 @@ ggplot(RR_df,
   ylim(range(unlist(RR_df[,3:4]))) +
   labs(title = "Effect on Shannon Diversity: trade-offs", x="Resistance", y="Recovery")
 
+
+# keep these results for the final summary plot
+final_RR_df <- rbind(final_RR_df,
+                     RR_df %>% filter(hypoth == "H_alt: trade-offs",
+                                      spS_extreme < spS_ambient))
 ```
 
 **Summary:**
@@ -2426,4 +2486,33 @@ ggplot(RR_df,
 For **Total Productivity**, I think recovery is going up because it seems that my initial observation from the null hypothesis analysis that total productivity during recovery increases only with the fastest grower was too simplistic. It seems that in general the entire community's (mean? median? smth else?) growth rate is what's important for it to be able to make a full recovery. For the data-point with the largest growth rate of spS_extreme, the resistance moves to the right because spS_extreme is actually the fastest growth rate overall. So the "slow grower" gains more biomass during the heat pulse than it does during ambient temperature, while the "fast grower" is gaining less biomass and there's more of it so there's still overall a net negative effect of the heat pulse during resistance but it's less negative than for the other parameter values. So basically my whole intuition explained in the paper that trade-ups should lead to decoupling above the $y=x$ line while trade-offs would lead to decoupling below the $y=x$ line is bunk. And in fact "decoupling" appears to be the rule as compared to the exception; "coupling" is the one that's more unusual.
 
 For **Diversity**, there's all kinds of stuff going on... which makes it pretty clear that "coupling" or "decoupling" are not robust read-outs of any mechanism.
+
+
+# A figure
+
+```{r, summary_figure}
+ggplot(final_RR_df,
+       aes(x=prod_resist, y=prod_recov, colour=hypoth)) +
+  geom_point(alpha=0.5) +
+  labs(title = "Effect on total Productivity", x="Resistance", y="Recovery")
+
+ggplot(final_RR_df,
+       aes(x=prod_resist, y=prod_recov, colour=hypoth)) +
+  geom_point(alpha=0.5) +
+  geom_abline(intercept = 0, slope = 1, color = "black") +
+  xlim(range(unlist(final_RR_df[,1:2]))) +
+  ylim(range(unlist(final_RR_df[,1:2]))) +
+  labs(title = "Effect on total Productivity", x="Resistance", y="Recovery")
+
+
+
+ggplot(final_RR_df,
+       aes(x=div_resist, y=div_recov, colour=hypoth)) +
+  geom_point(alpha=0.5) +
+  labs(title = "Effect on Shannon Diversity", x="Resistance", y="Recovery")
+
+```
+
+I guess it would be better if we were to sample like ~ 100 random values in the parameter space of each of the 3 hypotheses...
+
 
