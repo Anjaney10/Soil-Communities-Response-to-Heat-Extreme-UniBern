@@ -2488,7 +2488,7 @@ For **Total Productivity**, I think recovery is going up because it seems that m
 For **Diversity**, there's all kinds of stuff going on... which makes it pretty clear that "coupling" or "decoupling" are not robust read-outs of any mechanism.
 
 
-# A figure
+# A summary figure
 
 ```{r, summary_figure}
 ggplot(final_RR_df,
@@ -2515,4 +2515,6 @@ ggplot(final_RR_df,
 
 I guess it would be better if we were to sample like ~ 100 random values in the parameter space of each of the 3 hypotheses...
 
+
+# More extensive random exploration of the parameter space
 
