@@ -1813,6 +1813,133 @@ rm(growthrates_40vs35)
 
 Rather predictably, our growth rates data at 35C and 40C failed the statistical test of Normality. I rationalized that the t-test should be quite robust to violations and I went ahead it ran it along with the non-parametric test. As expected, both are significant.
 
+# Check fluorescent markers
+
+For P. putida we have 1 sample that does not have any fluorescent marker (BSC010: P. putida mt-2 KT2440) and 4 samples that **do** have fluorescent markers (including 2 samples that are more closely related, BSC002: P. putida KT2440 and BSC015: P. putida KT2440).
+
+First compare using the growth curve summary data for growth rate (mu):
+
+```{r, putida_fluor_growthrate}
+# plot whether the confidence interval of BSC010 is overlapping with the other samples
+ggplot(Dil_growthrates.df %>% 
+         filter(Inoculum == "Exponential",
+                Sample %in% c(paste0("BSC00", 1:3),
+                              paste0("BSC0", c(10,15)))),
+       aes(x = Sample, y = mu,
+           color = Sample)) +
+  facet_wrap(vars(Temp)) +
+  # add horizontal dashed lines for BSC010 CIs
+  geom_hline(data = Dil_growthrates.df %>% 
+               filter(Inoculum == "Exponential",
+                      Sample == "BSC010"),
+             aes(yintercept = mu_lwrCI),
+             linetype = "dashed", color = "deepskyblue") +
+  geom_hline(data = Dil_growthrates.df %>% 
+               filter(Inoculum == "Exponential",
+                      Sample == "BSC010"),
+             aes(yintercept = mu_uprCI),
+             linetype = "dashed", color = "deepskyblue") +
+  # add data points and their confidence intervals on top
+  geom_point(alpha = 0.25, na.rm = TRUE) +
+  geom_linerange(aes(ymin = mu_lwrCI, ymax = mu_uprCI),
+                 alpha = 0.5, na.rm = TRUE, linetype = "solid") +
+  scale_color_manual(values = c("BSC010" = "blue4",
+                                  "BSC002" = "red",
+                                  "BSC015" = "red"),
+                       guide = "none") +
+  labs(y = "Growth Rate (mu)",
+       title = "Exponential phase inoculum") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        legend.position = "none")
+
+ggplot(Dil_growthrates.df %>% 
+         filter(Inoculum == "Stationary",
+                Sample %in% c(paste0("BSC00", 1:3),
+                              paste0("BSC0", c(10,15)))),
+       aes(x = Sample, y = mu,
+           color = Sample)) +
+  facet_wrap(vars(Temp)) +
+  # add horizontal dashed lines for BSC010 CIs
+  geom_hline(data = Dil_growthrates.df %>% 
+               filter(Inoculum == "Stationary",
+                      Sample == "BSC010"),
+             aes(yintercept = mu_lwrCI),
+             linetype = "dashed", color = "deepskyblue") +
+  geom_hline(data = Dil_growthrates.df %>% 
+               filter(Inoculum == "Stationary",
+                      Sample == "BSC010"),
+             aes(yintercept = mu_uprCI),
+             linetype = "dashed", color = "deepskyblue") +
+  # add data points and their confidence intervals on top
+  geom_point(alpha = 0.25, na.rm = TRUE) +
+  geom_linerange(aes(ymin = mu_lwrCI, ymax = mu_uprCI),
+                 alpha = 0.5, na.rm = TRUE, linetype = "solid") +
+  scale_color_manual(values = c("BSC010" = "blue4",
+                                  "BSC002" = "red",
+                                  "BSC015" = "red"),
+                       guide = "none") +
+  labs(y = "Growth Rate (mu)",
+       title = "Stationary phase inoculum") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        legend.position = "none")
+
+
+# check numerically to make sure that the confidence intervals are indeed overlapping
+Dil_growthrates.df %>%
+    filter(Sample %in% c("BSC010", "BSC002", "BSC015")) %>%
+    group_by(Temp, Inoculum) %>%
+    reframe(
+        test_condition = {
+            lwr010 <- mu_lwrCI[Sample == "BSC010"]
+            upr010 <- mu_uprCI[Sample == "BSC010"]
+            
+            lwr002 <- mu_lwrCI[Sample == "BSC002"]
+            upr002 <- mu_uprCI[Sample == "BSC002"]
+            
+            lwr015 <- mu_lwrCI[Sample == "BSC015"]
+            upr015 <- mu_uprCI[Sample == "BSC015"]
+            
+            (lwr010 <= upr002 & lwr002 <= upr010) |
+                (lwr010 <= upr015 | lwr015 <= upr010)
+        }
+    )
+```
+
+And, we can also do the same comparison using the survival (CFU at 35 or 40 as compared to CFU at 28):
+
+```{r, putida_fluor_surviv}
+# plot whether the confidence interval of BSC010 is overlapping with the other samples
+ggplot(CFU_survival.df %>% 
+         filter(#Inoculum == "Exponential",
+                Species == "P. putida"),
+       aes(x = Sample, y = mean_surviv,
+           color = Sample)) +
+  facet_grid(rows = vars(Inoculum),
+             cols = vars(Temp)) +
+  # add horizontal dashed lines for BSC010 CIs
+  geom_hline(data = CFU_survival.df %>% 
+               filter(#Inoculum == "Exponential",
+                      Sample == "BSC010"),
+             aes(yintercept = lwr_ci),
+             linetype = "dashed", color = "deepskyblue") +
+  geom_hline(data = CFU_survival.df %>% 
+               filter(#Inoculum == "Exponential",
+                      Sample == "BSC010"),
+             aes(yintercept = upr_ci),
+             linetype = "dashed", color = "deepskyblue") +
+  # add data points and their confidence intervals on top
+  geom_point(alpha = 0.25, na.rm = TRUE) +
+  geom_linerange(aes(ymin = lwr_ci, ymax = upr_ci),
+                 alpha = 0.5, na.rm = TRUE, linetype = "solid") +
+  scale_color_manual(values = c("BSC010" = "blue4",
+                                  "BSC002" = "red",
+                                  "BSC015" = "red"),
+                       guide = "none") +
+  labs(y = "Survival") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        legend.position = "none")
+```
+
 # Plot weird 40C growth by P. protegens
 
 P. protegens showed density-dependent growth at 40C. Growth curves for all strains at all temperatures are given above but below is a plot of P. protegens Pf5 to go in the supplement
@@ -1906,6 +2033,23 @@ ggplot(temp_data_for_plotting,
   scale_y_log10(limits=c(0.005,1.5)) +
   geom_line(alpha=0.5) +
   labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)", title="P. grimontii")
+
+#########################
+# finally, plot P. putida
+#########################
+
+# P. putida grew well at 40C
+# so we plot the data as included in the TTD calculation
+temp_data_for_plotting <-   smoothed_ALL.df %>% 
+                                  filter(Species == "P. putida",
+                                         !is.na(TTD_0.05))
+ggplot(temp_data_for_plotting,
+       aes(y = smth_baselinedOD, x = Time, colour = Dilution, group = uniqID)) +
+  facet_wrap(vars(Temp)) +
+  scale_y_log10(limits=c(0.005,1.5)) +
+  geom_line(alpha=0.5) +
+  labs(x="Time (hrs)", y="Total Biomass (OD at 600nm)", title="P. putida")
+
 
 # clean up
 rm(temp_data_for_plotting, temp, these_grew)
